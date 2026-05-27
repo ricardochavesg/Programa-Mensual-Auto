@@ -55,13 +55,7 @@ El motor de renderizado encargado de dar el formato visual estricto para el outp
 El sistema está diseñado para ser completamente autónomo y fácil de desplegar, automatizando el almacenamiento de datos en segundo plano a través de su interfaz gráfica.
 
 ### 1. Clonación e Instalación Local
-Para descargar el proyecto en tu máquina local, ejecuta los siguientes comandos en tu terminal:
-```bash
-# Clonar el repositorio
-git clone [https://github.com/tu-usuario/gestor-programas-interactivo.git](https://github.com/tu-usuario/gestor-programas-interactivo.git)
-
-# Acceder al directorio del proyecto
-cd gestor-programas-interactivo
+Descarga el .exe compilado mas reciente o compilalo con el build.py
 
 2. Preparación de Archivos
 
