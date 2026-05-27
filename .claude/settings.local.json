@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile setup_db.py)",
+      "Bash(python -m py_compile parser.py)",
+      "Bash(python -c \"import pandas, bs4, lxml, openpyxl; print\\('Todas las dependencias OK'\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python -m pip install pandas openpyxl beautifulsoup4 lxml --quiet)",
+      "Bash(python setup_db.py)",
+      "Bash(python parser.py)",
+      "Bash(python -m py_compile assignator.py)",
+      "Bash(python assignator.py)",
+      "Bash(python -c ':*)",
+      "Bash(python -c \"import json; d=json.load\\(open\\('programa_mes.json',encoding='utf-8'\\)\\); print\\(json.dumps\\(d, indent=2, ensure_ascii=False\\)\\)\")",
+      "Bash(python -m pip install jinja2 html2image Pillow --quiet)",
+      "Bash(python:*)",
+      "Bash(tasklist)",
+      "Bash(findstr -i excel)",
+      "Bash(python3 -c ':*)",
+      "Bash(pip show:*)"
+    ]
+  }
+}

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+/* ─── Reset ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ─── Body: fondo BLANCO para que el PIL-crop funcione ────── */
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: #ffffff;
+  padding: 20px;
+}
+
+/* ─── Contenedor principal ───────────────────────────────── */
+.programa {
+  width: 1400px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 6px 32px rgba(0,0,0,0.15);
+}
+
+/* ─── Cabecera ───────────────────────────────────────────── */
+.pg-header {
+  background: linear-gradient(135deg, #1e3a5f 0%, #243b55 100%);
+  color: white;
+  padding: 22px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pg-header h1 {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ─── Tabla ──────────────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+th, td {
+  border: 1px solid #e2e8f0;
+  vertical-align: middle;
+}
+
+/* ─── Columna de etiquetas (col 1) ───────────────────────── */
+.col-label { width: 175px; }
+
+/* ─── Cabecera de semana ─────────────────────────────────── */
+.week-th {
+  background: #1e3a5f;
+  color: white;
+  padding: 12px 8px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.week-th .fecha {
+  font-weight: 800;
+  font-size: 13px;
+  color: #ffffff;
+  display: block;
+}
+.week-th .rango {
+  color: #7fb3d3;
+  font-size: 10px;
+  font-weight: 400;
+  display: block;
+  margin-top: 2px;
+}
+.col-label-th {
+  background: #0f172a;
+  color: #94a3b8;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 8px;
+}
+
+/* ─── Cabecera de sección ───────────────────────────────── */
+.section-hdr td {
+  padding: 6px 14px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: white;
+  border: none;
+}
+
+/* ─── Celda de etiqueta ──────────────────────────────────── */
+.label-td {
+  padding: 8px 10px 8px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.label-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.3;
+}
+.icon-emoji { font-size: 16px; flex-shrink: 0; }
+
+/* Badge numérico circular */
+.num-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 800;
+  color: white;
+  flex-shrink: 0;
+  margin-left: -4px;
+  margin-top: -8px;
+}
+
+/* ─── Celda de asignación ───────────────────────────────── */
+.assign-td {
+  padding: 5px 4px;
+  text-align: center;
+  background: white;
+}
+
+/* Celda de asignación para LIMPIEZA */
+.assign-td-limpieza {
+  padding: 14px 6px;
+  text-align: center;
+  background: #f0fdf4;
+  border-top: 2px solid #bbf7d0;
+  border-bottom: 2px solid #bbf7d0;
+}
+
+.assign-inner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;          /* espacio entre avatares en celdas de pareja */
+  flex-wrap: nowrap;
+}
+
+/* ─── Avatar (sin nombre debajo) ─────────────────────────── */
+/* Tamaño HD: 65px → 85px                                    */
+.avatar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 90px;
+  max-width: 100px;
+}
+.avatar-circle {
+  width: 85px;
+  height: 85px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2.5px solid #e2e8f0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: white;
+  background: #cbd5e1;
+}
+.avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* Sin .avatar-name → nombres eliminados */
+
+.avatar-empty .avatar-circle {
+  border-color: #e2e8f0;
+  background: #f1f5f9;
+}
+
+/* ─── Celda de limpieza ──────────────────────────────────── */
+.limpieza-pill {
+  display: inline-block;
+  padding: 7px 28px;
+  border-radius: 24px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  background: #dcfce7;
+  color: #15803d;
+  border: 2px solid #86efac;
+}
+
+</style>
+</head>
+<body>
+
+<div class="programa">
+
+  <!-- ── Cabecera ── -->
+  <div class="pg-header">
+    <div>
+      <h1>{{ titulo }}</h1>
+    </div>
+  </div>
+
+  <!-- ── Tabla ── -->
+  <table>
+    <thead>
+      <tr>
+        <th class="col-label col-label-th">Asignación</th>
+        {% for h in headers %}
+        <th class="week-th">
+          <span class="fecha">{{ h.fecha }}</span>
+          <span class="rango">{{ h.rango }}</span>
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in filas %}
+
+        {# ── Cabecera de sección ── #}
+        {% if fila.mostrar_cabecera %}
+          {% set cfg = seccion_cfg[fila.seccion] %}
+          <tr class="section-hdr">
+            <td colspan="{{ headers|length + 1 }}"
+                style="background:{{ cfg.hdr_bg }}">
+              {{ cfg.label }}
+            </td>
+          </tr>
+        {% endif %}
+
+        {# ── Fila de datos ── #}
+        {% set cfg = seccion_cfg[fila.seccion] %}
+        <tr>
+
+          {# Celda etiqueta #}
+          <td class="label-td col-label"
+              style="background:{{ cfg.row_bg }}; color:{{ cfg.row_color }}">
+            <div class="label-inner">
+              <span class="icon-emoji">{{ fila.icono }}</span>
+              {% if fila.numero > 0 %}
+                <span class="num-badge" style="background:{{ cfg.badge }}">{{ fila.numero }}</span>
+              {% endif %}
+              <span>{{ fila.etiqueta }}</span>
+            </div>
+          </td>
+
+          {# Celdas de asignación — una por semana #}
+          {% for celda in fila.celdas %}
+
+            {% if fila.es_limpieza %}
+              {# ── Limpieza: fondo verde, texto grande ── #}
+              <td class="assign-td-limpieza">
+                <span class="limpieza-pill">{{ celda }}</span>
+              </td>
+
+            {% else %}
+              {# ── Personas: avatares circulares sin nombre ── #}
+              <td class="assign-td">
+                <div class="assign-inner">
+                  {% for p in celda %}
+                    <div class="avatar {% if p.vacio %}avatar-empty{% endif %}">
+                      <div class="avatar-circle"
+                           {% if not p.foto and not p.vacio %}style="background:{{ p.color }}"{% endif %}>
+                        {% if p.foto %}
+                          <img src="{{ p.foto }}"
+                               alt="{{ p.iniciales }}"
+                               width="85"
+                               height="85"
+                               style="display:block;width:85px;height:85px;object-fit:cover;border:none;padding:0;margin:0;">
+                        {% elif not p.vacio %}
+                          {{ p.iniciales }}
+                        {% endif %}
+                      </div>
+                      {# Nombre eliminado — solo imagen circular #}
+                    </div>
+                  {% endfor %}
+                </div>
+              </td>
+            {% endif %}
+
+          {% endfor %}
+
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+
+</div><!-- .programa -->
+</body>
+</html>

@@ -1,0 +1,659 @@
+{% extends "base.html" %}
+{% block title %}Editar Programa{% endblock %}
+
+{% block content %}
+
+<!-- Banner de borrador cargado -->
+{% if desde_borrador %}
+<div id="banner-borrador"
+     class="flex items-center justify-between gap-3 mb-4 px-4 py-3 rounded-xl
+            bg-amber-50 border border-amber-300 text-amber-800 text-sm font-medium shadow-sm">
+  <span>📂 Se ha cargado un borrador guardado anteriormente.</span>
+  <button onclick="this.closest('#banner-borrador').remove()"
+          class="text-amber-500 hover:text-amber-700 transition font-black text-lg leading-none">×</button>
+</div>
+{% endif %}
+
+<!-- Barra de acciones -->
+<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-2xl font-black tracking-wide text-slate-800">Editar Programa</h1>
+    <p class="text-slate-500 text-sm mt-0.5">Haz clic en cualquier foto para cambiar la asignación</p>
+  </div>
+  <div class="flex flex-wrap gap-3">
+    <button onclick="descartarBorrador()"
+            class="px-5 py-2.5 rounded-xl border border-red-200 bg-white text-red-600 font-semibold text-sm hover:bg-red-50 transition shadow-sm">
+      🗑️ Empezar de nuevo
+    </button>
+    <button onclick="guardarBorrador()" id="btn-borrador"
+            class="px-5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 transition shadow-sm flex items-center gap-2">
+      <span id="btn-borrador-icon">💾</span>
+      <span id="btn-borrador-label">Guardar Borrador</span>
+    </button>
+    <button onclick="generarImagen()"
+            id="btn-generar"
+            class="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition shadow-sm flex items-center gap-2">
+      <span id="btn-icon">🖼️</span>
+      <span id="btn-label">Generar Imagen Final</span>
+    </button>
+  </div>
+</div>
+
+<!-- Panel de resultado (oculto hasta generar) -->
+<div id="result-panel" class="hidden mb-6 bg-white rounded-2xl shadow p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-bold text-slate-800">✅ Imagen generada</h2>
+    <a id="result-download" href="/imagen" download="Programa_Mes.png"
+       class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition">
+      ⬇️ Descargar PNG
+    </a>
+  </div>
+  <img id="preview-img" src="" alt="Programa generado"
+       class="rounded-xl border border-slate-200 max-w-full shadow-md">
+</div>
+
+<!-- Tabla editable -->
+<div class="bg-white rounded-2xl shadow overflow-x-auto">
+  <table class="w-full border-collapse" style="min-width: 700px">
+    <thead>
+      <tr>
+        <th class="bg-slate-900 text-slate-400 text-xs uppercase tracking-widest px-4 py-3 text-left font-medium"
+            style="width:160px">Asignación</th>
+        {% for h in tabla.headers %}
+        <th class="bg-slate-800 text-white px-3 py-3 text-center">
+          <span class="block font-extrabold text-sm text-white">{{ h.fecha }}</span>
+          <span class="block text-slate-400 text-xs font-normal mt-0.5">{{ h.rango }}</span>
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in tabla.filas %}
+        {% set cfg = tabla.seccion_cfg[fila.seccion] %}
+
+        {# Cabecera de sección #}
+        {% if fila.mostrar_cabecera %}
+        <tr>
+          <td colspan="{{ tabla.headers|length + 1 }}"
+              class="py-2 px-4 text-xs font-black tracking-widest uppercase text-white"
+              style="background:{{ cfg.hdr_bg }}">
+            {{ cfg.label }}
+          </td>
+        </tr>
+        {% endif %}
+
+        {# Fila de datos #}
+        <tr class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+
+          {# Etiqueta #}
+          <td class="px-4 py-3 text-xs font-semibold"
+              style="background:{{ cfg.row_bg }}; color:{{ cfg.row_color }}">
+            <div class="flex items-center gap-2">
+              <span class="text-base">{{ fila.icono }}</span>
+              {% if fila.numero > 0 %}
+              <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-xs font-black"
+                    style="background:{{ cfg.badge }}">{{ fila.numero }}</span>
+              {% endif %}
+              <span>{{ fila.etiqueta }}</span>
+            </div>
+          </td>
+
+          {# Celdas de asignación #}
+          {% for celda in fila.celdas %}
+          <td class="px-3 py-2 text-center align-middle"
+              style="background:{{ cfg.row_bg }}">
+
+            {% if fila.es_limpieza %}
+            {# Limpieza: selector Norte / Sur / Central #}
+            <select data-field-id="{{ celda.field_id }}"
+                    class="slot-value px-3 py-1.5 rounded-full text-sm font-bold border-2
+                           cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                    style="background:#dcfce7; color:#15803d; border-color:#86efac">
+              {% for grupo in ['Norte', 'Sur', 'Central'] %}
+              <option value="{{ grupo }}"
+                      {% if celda.valor == grupo %}selected{% endif %}>
+                {{ grupo }}
+              </option>
+              {% endfor %}
+            </select>
+
+            {% else %}
+            {# Personas: uno o más selectores #}
+            {% set flexible = fila.seccion in ('maestros', 'vida_cristiana') %}
+            <div class="assign-inner flex justify-center items-center gap-2 flex-wrap">
+              {% for slot in celda %}
+              <div class="selector relative{% if flexible %} group{% endif %}"
+                   data-field-id="{{ slot.field_id }}"
+                   data-rol="{{ slot.rol }}"
+                   data-changed="false">
+
+                <!-- Botón trigger (foto actual) -->
+                <button type="button"
+                        onclick="abrirSelector(this)"
+                        class="selector-btn flex flex-col items-center gap-1 p-1 rounded-xl hover:bg-slate-200 transition group focus:outline-none"
+                        title="{{ slot.nombre_actual if not slot.vacio else 'Sin asignar' }}">
+
+                  <!-- Círculo con foto -->
+                  <div class="avatar-circle w-14 h-14 rounded-full overflow-hidden border-2 border-slate-200 flex items-center justify-center text-sm font-black text-white transition group-hover:border-blue-400 group-hover:shadow-md"
+                       style="{% if not slot.foto_actual and not slot.vacio %}background:{{ slot.color_actual }}{% elif slot.vacio %}background:#f1f5f9{% else %}background:#e2e8f0{% endif %}">
+                    {% if slot.foto_actual %}
+                      <img src="{{ slot.foto_actual }}" alt="{{ slot.iniciales_actual }}"
+                           class="w-full h-full object-cover">
+                    {% elif not slot.vacio %}
+                      <span class="text-xs select-none">{{ slot.iniciales_actual }}</span>
+                    {% endif %}
+                  </div>
+
+                  <!-- Nombre -->
+                  <span class="avatar-name block text-xs font-semibold text-slate-600
+                               max-w-16 truncate text-center leading-tight">
+                    {{ slot.nombre_actual if not slot.vacio else "—" }}
+                  </span>
+
+                  <!-- Flecha indicador -->
+                  <svg class="w-3 h-3 text-slate-400 group-hover:text-blue-500 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                  </svg>
+                </button>
+
+                <!-- Input oculto para trackear cambios -->
+                <input type="hidden"
+                       class="slot-value"
+                       data-field-id="{{ slot.field_id }}"
+                       value="{{ slot.nombre_actual }}">
+
+                <!-- Panel desplegable (poblado por JS) -->
+                <div class="selector-panel hidden absolute z-50 top-full mt-1 left-1/2 -translate-x-1/2
+                             bg-white border border-slate-200 rounded-2xl shadow-2xl
+                             w-52 max-h-72 overflow-y-auto"
+                     style="min-width:200px">
+                  <!-- Buscador -->
+                  <div class="sticky top-0 bg-white px-3 pt-3 pb-2 border-b border-slate-100">
+                    <input type="text"
+                           placeholder="Buscar..."
+                           oninput="filtrarCandidatos(this)"
+                           class="w-full text-xs px-2 py-1.5 border border-slate-200 rounded-lg
+                                  focus:outline-none focus:border-blue-400">
+                  </div>
+                  <!-- Lista de candidatos (poblada por JS) -->
+                  <div class="candidates-list py-1"></div>
+                </div>
+
+                {% if flexible %}
+                <!-- Botón quitar persona (visible al hacer hover sobre el slot) -->
+                <button type="button"
+                        onclick="removeSlot(this.closest('.selector'), event)"
+                        class="remove-slot-btn absolute -top-1 -right-1 z-10 w-5 h-5 rounded-full
+                               bg-red-500 text-white text-xs font-black
+                               flex items-center justify-center leading-none
+                               hover:bg-red-600 transition
+                               opacity-0 group-hover:opacity-100"
+                        title="Quitar persona">×</button>
+                {% endif %}
+
+              </div>
+              {% endfor %}
+
+              {% if flexible %}
+              <!-- Botón añadir persona extra -->
+              <button type="button"
+                      onclick="addSlot(this.closest('.assign-inner'), event)"
+                      class="add-slot-btn w-7 h-7 rounded-full bg-emerald-500 text-white
+                             font-black text-base flex items-center justify-center
+                             hover:bg-emerald-600 transition flex-shrink-0 leading-none"
+                      title="Añadir persona">+</button>
+              {% endif %}
+
+            </div>
+            {% endif %}
+
+          </td>
+          {% endfor %}
+
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Personal JSON para JS (no visible) -->
+<script id="personal-data" type="application/json">{{ personal_json|safe }}</script>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   DATOS GLOBALES
+═══════════════════════════════════════════════════════════════ */
+const PERSONAL = JSON.parse(document.getElementById('personal-data').textContent);
+
+// Índice rápido por nombre
+const PERSONAL_MAP = {};
+PERSONAL.forEach(p => PERSONAL_MAP[p.nombre] = p);
+
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS DE AVATAR
+═══════════════════════════════════════════════════════════════ */
+function avatarHTML(p, size = '8') {
+  if (p.foto) {
+    return `<img src="${p.foto}" class="w-full h-full object-cover rounded-full" alt="${p.iniciales}">`;
+  }
+  return `<span class="text-xs font-black select-none">${p.iniciales}</span>`;
+}
+
+function avatarStyle(p) {
+  return p.foto ? 'background:#e2e8f0' : `background:${p.color}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CANDIDATOS POR ROL
+═══════════════════════════════════════════════════════════════ */
+function getCandidatos(rol) {
+  const activos = PERSONAL.filter(p => p.activo !== false);
+  let lista = activos.filter(p => p.roles.includes(rol));
+  if (lista.length === 0) lista = activos;  // fallback: mostrar todos activos
+  return lista.slice().sort((a, b) => a.carga - b.carga || a.nombre.localeCompare(b.nombre));
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTRUIR FILA DE CANDIDATO
+═══════════════════════════════════════════════════════════════ */
+function buildCandidatoEl(p, nombreSeleccionado) {
+  const seleccionado = p.nombre === nombreSeleccionado;
+  const div = document.createElement('div');
+  div.className = `candidate-item flex items-center gap-2 px-3 py-2 cursor-pointer transition
+    ${seleccionado ? 'bg-blue-50 border-l-2 border-blue-500' : 'hover:bg-slate-50'}`;
+  div.dataset.nombre   = p.nombre;
+  div.dataset.foto     = p.foto || '';
+  div.dataset.iniciales= p.iniciales;
+  div.dataset.color    = p.color;
+  div.innerHTML = `
+    <div class="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center
+                text-white flex-shrink-0 border border-slate-200"
+         style="${avatarStyle(p)}">
+      ${avatarHTML(p)}
+    </div>
+    <div class="min-w-0">
+      <div class="text-sm font-semibold text-slate-800 truncate">${p.nombre}</div>
+      <div class="text-xs text-slate-400">Carga: ${p.carga}</div>
+    </div>
+    ${seleccionado ? '<svg class="w-4 h-4 text-blue-500 ml-auto flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>' : ''}
+  `;
+  div.addEventListener('click', () => seleccionarPersona(div));
+  return div;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ABRIR SELECTOR
+═══════════════════════════════════════════════════════════════ */
+function abrirSelector(btn) {
+  const selector = btn.closest('.selector');
+  const panel    = selector.querySelector('.selector-panel');
+  const isOpen   = !panel.classList.contains('hidden');
+
+  // Cerrar todos los otros paneles
+  cerrarTodos();
+
+  if (isOpen) return;
+
+  // Poblar candidatos si aún no tiene (o siempre refrescar)
+  const rol             = selector.dataset.rol;
+  const valorActual     = selector.querySelector('.slot-value').value;
+  const candidatosList  = panel.querySelector('.candidates-list');
+  const searchInput     = panel.querySelector('input[type="text"]');
+
+  candidatosList.innerHTML = '';
+  searchInput.value = '';
+
+  const candidatos = getCandidatos(rol);
+  candidatos.forEach(p => {
+    candidatosList.appendChild(buildCandidatoEl(p, valorActual));
+  });
+
+  panel.classList.remove('hidden');
+
+  // Scroll para que el panel quede visible
+  setTimeout(() => {
+    const rect = panel.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight) {
+      panel.style.top = 'auto';
+      panel.style.bottom = '100%';
+      panel.style.marginTop = '0';
+      panel.style.marginBottom = '4px';
+    }
+  }, 0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FILTRAR CANDIDATOS POR BÚSQUEDA
+═══════════════════════════════════════════════════════════════ */
+function filtrarCandidatos(input) {
+  const query = input.value.toLowerCase();
+  const items = input.closest('.selector-panel').querySelectorAll('.candidate-item');
+  items.forEach(item => {
+    item.style.display = item.dataset.nombre.toLowerCase().includes(query) ? '' : 'none';
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SELECCIONAR PERSONA
+═══════════════════════════════════════════════════════════════ */
+function seleccionarPersona(item) {
+  const selector = item.closest('.selector');
+  const btn      = selector.querySelector('.selector-btn');
+  const input    = selector.querySelector('.slot-value');
+  const panel    = selector.querySelector('.selector-panel');
+
+  const nombre   = item.dataset.nombre;
+  const foto     = item.dataset.foto;
+  const iniciales= item.dataset.iniciales;
+  const color    = item.dataset.color;
+
+  // Actualizar input oculto
+  input.value = nombre;
+
+  // Actualizar círculo de avatar
+  const circle = btn.querySelector('.avatar-circle');
+  circle.style.background = foto ? '#e2e8f0' : color;
+  circle.innerHTML = foto
+    ? `<img src="${foto}" class="w-full h-full object-cover" alt="${iniciales}">`
+    : `<span class="text-xs select-none">${iniciales}</span>`;
+
+  // Actualizar nombre mostrado
+  btn.querySelector('.avatar-name').textContent = nombre;
+
+  // Marcar como modificado
+  selector.dataset.changed = 'true';
+
+  cerrarTodos();
+
+  // Verificar duplicados en la misma semana
+  const semanaIdx = input.dataset.fieldId.split('|')[0];
+  verificarDuplicados(semanaIdx);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VERIFICAR DUPLICADOS EN LA MISMA SEMANA
+═══════════════════════════════════════════════════════════════ */
+function verificarDuplicados(semanaIdx) {
+  // Todos los selectores de esta semana (excluye limpieza que es un <select>)
+  const selectores = [...document.querySelectorAll('.selector')].filter(s => {
+    const fid = s.querySelector('.slot-value')?.dataset.fieldId || '';
+    return fid.startsWith(semanaIdx + '|');
+  });
+
+  // Conteo de apariciones por nombre
+  const conteo = {};
+  selectores.forEach(s => {
+    const nombre = s.querySelector('.slot-value').value;
+    if (nombre) conteo[nombre] = (conteo[nombre] || 0) + 1;
+  });
+
+  // Aplicar o quitar señal de duplicado en cada selector
+  selectores.forEach(s => {
+    const nombre  = s.querySelector('.slot-value').value;
+    const circle  = s.querySelector('.avatar-circle');
+    const avisoEl = s.querySelector('.duplicado-aviso');
+    const esDup   = nombre && conteo[nombre] > 1;
+
+    if (esDup) {
+      circle.classList.remove('ring-blue-400');
+      circle.classList.add('ring-2', 'ring-red-500', 'ring-offset-1');
+      if (!avisoEl) {
+        const div = document.createElement('div');
+        div.className = 'duplicado-aviso text-xs text-red-500 font-bold mt-0.5 text-center';
+        div.textContent = '⚠️ Duplicado';
+        s.querySelector('.selector-btn').appendChild(div);
+      }
+    } else {
+      circle.classList.remove('ring-red-500');
+      if (avisoEl) avisoEl.remove();
+      // Restaurar ring azul si el slot fue modificado manualmente
+      if (s.dataset.changed === 'true') {
+        circle.classList.add('ring-2', 'ring-blue-400', 'ring-offset-1');
+      } else {
+        circle.classList.remove('ring-2', 'ring-offset-1');
+      }
+    }
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CERRAR TODOS LOS PANELES
+═══════════════════════════════════════════════════════════════ */
+function cerrarTodos() {
+  document.querySelectorAll('.selector-panel').forEach(p => {
+    p.classList.add('hidden');
+    p.style.top = '';
+    p.style.bottom = '';
+    p.style.marginTop = '';
+    p.style.marginBottom = '';
+  });
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.selector')) cerrarTodos();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') cerrarTodos();
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   RECOPILAR CAMBIOS ACTUALES DE LA TABLA
+═══════════════════════════════════════════════════════════════ */
+function recopilarCambios() {
+  const cambios = {};
+  document.querySelectorAll('.slot-value').forEach(input => {
+    cambios[input.dataset.fieldId] = input.value;
+  });
+  return cambios;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GUARDAR BORRADOR
+═══════════════════════════════════════════════════════════════ */
+async function guardarBorrador() {
+  const btn      = document.getElementById('btn-borrador');
+  const btnIcon  = document.getElementById('btn-borrador-icon');
+  const btnLabel = document.getElementById('btn-borrador-label');
+
+  btn.disabled = true;
+  btnIcon.textContent  = '⏳';
+  btnLabel.textContent = 'Guardando...';
+
+  try {
+    const resp = await fetch('/api/programa/guardar_borrador', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ cambios: recopilarCambios() }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      btnIcon.textContent  = '✅';
+      btnLabel.textContent = 'Borrador guardado';
+      setTimeout(() => {
+        btnIcon.textContent  = '💾';
+        btnLabel.textContent = 'Guardar Borrador';
+      }, 2500);
+    } else {
+      alert('Error al guardar borrador:\n' + data.error);
+      btnIcon.textContent  = '💾';
+      btnLabel.textContent = 'Guardar Borrador';
+    }
+  } catch (err) {
+    alert('Error de conexión: ' + err.message);
+    btnIcon.textContent  = '💾';
+    btnLabel.textContent = 'Guardar Borrador';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DESCARTAR BORRADOR (EMPEZAR DE NUEVO)
+═══════════════════════════════════════════════════════════════ */
+async function descartarBorrador() {
+  if (!confirm('¿Empezar de nuevo? Se descartará el borrador y se generará una propuesta automática limpia.')) return;
+  try {
+    await fetch('/api/programa/descartar_borrador', { method: 'POST' });
+  } catch (_) {}
+  location.href = '/editar';
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GENERAR IMAGEN FINAL
+═══════════════════════════════════════════════════════════════ */
+async function generarImagen() {
+  const btn      = document.getElementById('btn-generar');
+  const btnIcon  = document.getElementById('btn-icon');
+  const btnLabel = document.getElementById('btn-label');
+
+  // Recopilar cambios actuales de la tabla
+  const cambios = recopilarCambios();
+
+  // Estado de carga
+  btn.disabled = true;
+  btn.classList.add('opacity-75', 'cursor-not-allowed');
+  btnIcon.textContent  = '⏳';
+  btnLabel.textContent = 'Generando...';
+
+  try {
+    const resp = await fetch('/guardar', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ cambios }),
+    });
+    const data = await resp.json();
+
+    if (data.ok) {
+      // Mostrar panel de resultado
+      const panel  = document.getElementById('result-panel');
+      const imgEl  = document.getElementById('preview-img');
+      panel.classList.remove('hidden');
+      imgEl.src = '/imagen?' + Date.now();
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      btnIcon.textContent  = '✅';
+      btnLabel.textContent = 'Imagen generada';
+    } else {
+      alert('Error al generar imagen:\n' + data.error);
+      resetBtn();
+    }
+  } catch (err) {
+    alert('Error de conexión: ' + err.message);
+    resetBtn();
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('opacity-75', 'cursor-not-allowed');
+  }
+}
+
+function resetBtn() {
+  document.getElementById('btn-icon').textContent  = '🖼️';
+  document.getElementById('btn-label').textContent = 'Generar Imagen Final';
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GESTIÓN DINÁMICA DE SLOTS (+/-)
+═══════════════════════════════════════════════════════════════ */
+
+/** Crea el HTML de un nuevo selector vacío para un campo extra_N. */
+function _crearSelectorExtra(fieldId, rol) {
+  const div = document.createElement('div');
+  div.className = 'selector relative group';
+  div.dataset.fieldId = fieldId;
+  div.dataset.rol     = rol;
+  div.dataset.changed = 'true';
+  div.innerHTML = `
+    <button type="button" onclick="abrirSelector(this)"
+            class="selector-btn flex flex-col items-center gap-1 p-1 rounded-xl
+                   hover:bg-slate-200 transition group focus:outline-none">
+      <div class="avatar-circle w-14 h-14 rounded-full overflow-hidden border-2 border-dashed
+                  border-emerald-400 flex items-center justify-center text-xl text-emerald-400
+                  transition group-hover:border-blue-400 group-hover:shadow-md"
+           style="background:#f0fdf4">+</div>
+      <span class="avatar-name block text-xs font-semibold text-slate-400
+                   max-w-16 truncate text-center leading-tight">—</span>
+      <svg class="w-3 h-3 text-slate-400 group-hover:text-blue-500 -mt-0.5"
+           fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </button>
+    <input type="hidden" class="slot-value" data-field-id="${fieldId}" value="">
+    <div class="selector-panel hidden absolute z-50 top-full mt-1 left-1/2 -translate-x-1/2
+                bg-white border border-slate-200 rounded-2xl shadow-2xl w-52 max-h-72 overflow-y-auto"
+         style="min-width:200px">
+      <div class="sticky top-0 bg-white px-3 pt-3 pb-2 border-b border-slate-100">
+        <input type="text" placeholder="Buscar..." oninput="filtrarCandidatos(this)"
+               class="w-full text-xs px-2 py-1.5 border border-slate-200 rounded-lg
+                      focus:outline-none focus:border-blue-400">
+      </div>
+      <div class="candidates-list py-1"></div>
+    </div>
+    <button type="button" onclick="removeSlot(this.closest('.selector'), event)"
+            class="remove-slot-btn absolute -top-1 -right-1 z-10 w-5 h-5 rounded-full
+                   bg-red-500 text-white text-xs font-black flex items-center justify-center
+                   leading-none hover:bg-red-600 transition opacity-0 group-hover:opacity-100"
+            title="Quitar persona">×</button>
+  `;
+  return div;
+}
+
+/** Añade un nuevo slot extra a la celda, abre su panel inmediatamente. */
+function addSlot(container, event) {
+  event.stopPropagation();
+
+  // Derivar base del field_id desde cualquier slot existente
+  const anyInput = container.querySelector('.slot-value');
+  if (!anyInput) return;
+  const parts = anyInput.dataset.fieldId.split('|');
+  const base  = `${parts[0]}|${parts[1]}|${parts[2]}`;  // si|sec|key
+
+  // Siguiente índice extra disponible (no en DOM)
+  let n = 0;
+  while (container.querySelector(`[data-field-id="${base}|extra_${n}"]`)) n++;
+  const newFieldId = `${base}|extra_${n}`;
+
+  // Rol del primer selector
+  const rol = container.querySelector('.selector')?.dataset.rol || 'Trigo';
+
+  const nuevoSlot = _crearSelectorExtra(newFieldId, rol);
+
+  // Insertar antes del botón "+"
+  const addBtn = container.querySelector('.add-slot-btn');
+  container.insertBefore(nuevoSlot, addBtn);
+
+  // Abrir el panel de selección inmediatamente
+  abrirSelector(nuevoSlot.querySelector('.selector-btn'));
+}
+
+/** Elimina un slot de la celda. Si es el último, no lo permite. */
+function removeSlot(selectorDiv, event) {
+  event.stopPropagation();
+
+  const container = selectorDiv.closest('.assign-inner');
+  const slots = container.querySelectorAll('.selector');
+
+  if (slots.length <= 1) return;  // no eliminar el único slot
+
+  const input        = selectorDiv.querySelector('.slot-value');
+  const fieldId      = input.dataset.fieldId;
+  const currentValue = input.value;
+
+  if (currentValue) {
+    // Tenía persona asignada: enviar vacío para que el backend limpie el campo
+    const hidden = document.createElement('input');
+    hidden.type            = 'hidden';
+    hidden.className       = 'slot-value';
+    hidden.dataset.fieldId = fieldId;
+    hidden.value           = '';
+    selectorDiv.replaceWith(hidden);
+  } else {
+    // Slot añadido pero nunca asignado: eliminar del DOM sin enviar nada al backend
+    selectorDiv.remove();
+  }
+
+  // Actualizar indicadores de duplicados
+  const si = fieldId.split('|')[0];
+  verificarDuplicados(si);
+}
+</script>
+
+{% endblock %}

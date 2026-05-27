@@ -1,0 +1,33 @@
+# ── Datos privados de la congregación (NUNCA subir) ──────────────────────────
+Personal.xlsx
+Personal_nuevo.xlsx
+fotos/
+backups/
+input_html/
+
+# ── Archivos temporales / salidas generadas ───────────────────────────────────
+temp.html
+borrador_programa.json
+programa_mes.json
+Programa_Mes.png
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+
+# ── Build / distribución ──────────────────────────────────────────────────────
+dist/
+build/
+*.spec
+
+# ── Configuración local ───────────────────────────────────────────────────────
+config.json
+
+# ── Sistema operativo ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

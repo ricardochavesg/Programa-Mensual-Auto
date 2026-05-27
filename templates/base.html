@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Programa Semanal{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Scrollbar personalizado */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+
+  <!-- Barra de navegación -->
+  <nav class="bg-slate-900 text-white shadow-lg sticky top-0 z-40">
+    <div class="max-w-screen-xl mx-auto px-6 py-3 flex items-center gap-6">
+      <span class="font-black text-lg tracking-widest uppercase text-blue-300">Programa Reuniones</span>
+      <div class="flex gap-1 ml-auto">
+        <a href="/catalogo"
+           class="px-4 py-1.5 rounded-full text-sm font-medium transition
+                  {% if request.path == '/catalogo' %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-700{% endif %}">
+          👥 Catálogo
+        </a>
+        <a href="/editar"
+           class="px-4 py-1.5 rounded-full text-sm font-medium transition
+                  {% if request.path == '/editar' %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-700{% endif %}">
+          ✏️ Editar
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Contenido principal -->
+  <main class="max-w-screen-xl mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    // Heartbeat: mantiene el servidor vivo mientras la pestaña está abierta.
+    // Si la pestaña se cierra, el servidor se apaga automáticamente en ~7 s.
+    setInterval(() => fetch('/api/heartbeat').catch(() => {}), 2000);
+  </script>
+</body>
+</html>

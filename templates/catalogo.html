@@ -1,0 +1,533 @@
+{% extends "base.html" %}
+{% block title %}Catálogo de Personal{% endblock %}
+
+{% block content %}
+
+<!-- Cabecera + botón añadir -->
+<div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+  <div>
+    <h1 class="text-2xl font-black tracking-wide text-slate-800">Catálogo de Personal</h1>
+    <p class="text-slate-500 text-sm mt-1">{{ personal|length }} personas registradas</p>
+  </div>
+  <button onclick="abrirModalNuevo()"
+          class="px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold text-sm
+                 hover:bg-emerald-700 transition shadow-sm flex items-center gap-2">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+    </svg>
+    Añadir Persona
+  </button>
+</div>
+
+<!-- Barra de filtros de género -->
+<div class="flex flex-wrap items-center gap-2 mb-6">
+  {% set total = personal|length %}
+  {% set hermanos = personal|selectattr('genero','equalto','H')|list|length %}
+  {% set hermanas = personal|selectattr('genero','equalto','M')|list|length %}
+  <button id="filtro-todos"
+          onclick="filtrarPorGenero('todos')"
+          class="filtro-btn px-4 py-2 rounded-xl text-sm font-semibold transition
+                 bg-slate-800 text-white shadow-sm">
+    Todos
+    <span class="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-white/20">{{ total }}</span>
+  </button>
+  <button id="filtro-H"
+          onclick="filtrarPorGenero('H')"
+          class="filtro-btn px-4 py-2 rounded-xl text-sm font-semibold transition
+                 border border-blue-200 text-blue-700 hover:bg-blue-50">
+    Hermanos
+    <span class="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">{{ hermanos }}</span>
+  </button>
+  <button id="filtro-M"
+          onclick="filtrarPorGenero('M')"
+          class="filtro-btn px-4 py-2 rounded-xl text-sm font-semibold transition
+                 border border-pink-200 text-pink-600 hover:bg-pink-50">
+    Hermanas
+    <span class="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-pink-100 text-pink-600">{{ hermanas }}</span>
+  </button>
+</div>
+
+<!-- Grid de tarjetas -->
+<div id="catalogo-grid"
+     class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+  {% for p in personal %}
+  <div class="persona-card bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow p-4
+              flex flex-col items-center gap-3
+              {% if not p.activo %}opacity-50 grayscale{% endif %}"
+       data-nombre="{{ p.nombre }}"
+       data-genero="{{ p.genero }}"
+       data-roles="{{ p.roles|join(',') }}"
+       data-matrimonio="{{ p.matrimonio_id if p.matrimonio_id is not none else '' }}"
+       data-ausencias="{{ p.ausencias }}"
+       data-activo="{{ 'true' if p.activo else 'false' }}">
+
+    <!-- Foto circular -->
+    <div class="w-20 h-20 rounded-full overflow-hidden border-4 border-slate-100 shadow
+                flex items-center justify-center font-black text-xl text-white flex-shrink-0"
+         style="{% if p.foto %}background:#e2e8f0{% else %}background:{{ p.color }}{% endif %}">
+      {% if p.foto %}
+        <img src="{{ p.foto }}" alt="{{ p.iniciales }}" class="w-full h-full object-cover">
+      {% else %}
+        {{ p.iniciales }}
+      {% endif %}
+    </div>
+
+    <!-- Nombre -->
+    <span class="font-bold text-slate-800 text-center text-sm leading-tight">{{ p.nombre }}</span>
+
+    <!-- Badge inactivo -->
+    {% if not p.activo %}
+    <span class="text-xs px-2 py-0.5 rounded-full font-black bg-red-100 text-red-600 border border-red-300 tracking-wide">
+      INACTIVO
+    </span>
+    {% endif %}
+
+    <!-- Roles -->
+    <div class="flex flex-wrap justify-center gap-1">
+      {% for rol in p.roles %}
+      <span class="text-xs px-2 py-0.5 rounded-full font-medium
+                   {% if rol == 'Presidente_ES' %}bg-blue-100 text-blue-800
+                   {% elif rol == 'Presidente_FDS' %}bg-purple-100 text-purple-700
+                   {% elif rol == 'Trigo' %}bg-emerald-100 text-emerald-700
+                   {% elif rol == 'Ayudante' %}bg-blue-100 text-blue-700
+                   {% elif rol in ('Camara','Zoom','Acomodador') %}bg-violet-100 text-violet-700
+                   {% elif rol == 'Conductor_Atalaya' %}bg-orange-100 text-orange-700
+                   {% else %}bg-slate-100 text-slate-600{% endif %}">
+        {{ rol }}
+      </span>
+      {% endfor %}
+    </div>
+
+    <!-- Ausencias -->
+    {% if p.ausencias %}
+    <div class="flex flex-wrap justify-center gap-1 w-full">
+      {% for fecha in p.ausencias.split(',') %}
+      <span class="text-xs px-2 py-0.5 rounded-full font-semibold bg-red-50 text-red-500 border border-red-200">
+        📅 {{ fecha.strip() }}
+      </span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Carga acumulada -->
+    <div class="text-xs text-slate-400 flex items-center gap-1">
+      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+      </svg>
+      Carga: <span class="font-semibold text-slate-600">{{ p.carga }}</span>
+    </div>
+
+    <!-- Botones -->
+    <div class="w-full flex gap-2 mt-1">
+      <button onclick="abrirModalEditar(this.closest('.persona-card'))"
+              class="flex-1 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold
+                     text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition">
+        ✏️ Editar
+      </button>
+      <button onclick="toggleActivo(this)"
+              data-nombre="{{ p.nombre }}"
+              class="flex-1 py-1.5 rounded-lg text-xs font-semibold transition
+                     {% if p.activo %}border border-orange-200 text-orange-600 hover:bg-orange-50
+                     {% else %}border border-emerald-200 text-emerald-600 hover:bg-emerald-50{% endif %}">
+        {% if p.activo %}🔌 Ausente{% else %}⚡ Activar{% endif %}
+      </button>
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════
+     MODAL COMPARTIDO (editar / añadir)
+═══════════════════════════════════════════════════════════════ -->
+<div id="modal-overlay"
+     class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+     onclick="if(event.target===this) cerrarModal()">
+
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-screen overflow-y-auto">
+    <div class="p-6">
+
+      <!-- Título -->
+      <div class="flex items-center justify-between mb-5">
+        <h2 id="modal-title" class="text-lg font-black text-slate-800">Editar Persona</h2>
+        <button onclick="cerrarModal()"
+                class="w-8 h-8 flex items-center justify-center rounded-full
+                       hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Nombre -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Nombre</label>
+        <input id="modal-nombre" type="text"
+               class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm
+                      focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200
+                      disabled:bg-slate-50 disabled:text-slate-500">
+      </div>
+
+      <!-- Género -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Género</label>
+        <div class="flex gap-4">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="modal-genero" value="H" class="accent-blue-600">
+            <span class="text-sm font-medium text-slate-700">Hermano (H)</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="modal-genero" value="M" class="accent-pink-500">
+            <span class="text-sm font-medium text-slate-700">Hermana (M)</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Roles (checkboxes) -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Roles</label>
+        <div class="grid grid-cols-2 gap-2">
+          {% for rol in roles_oficiales %}
+          <label class="flex items-center gap-2 p-2 rounded-lg border border-slate-100
+                        hover:bg-slate-50 cursor-pointer transition">
+            <input type="checkbox" class="modal-rol-check accent-blue-600" value="{{ rol }}">
+            <span class="text-xs font-medium text-slate-700">{{ rol }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Cónyuge -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+          Cónyuge <span class="text-slate-400 font-normal">(opcional)</span>
+        </label>
+        <select id="modal-conyuge"
+                class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white
+                       focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200
+                       cursor-pointer">
+          <option value="">--- Sin Asignar / Soltero ---</option>
+          <!-- Poblado por JS al abrir el modal -->
+        </select>
+        <p class="text-xs text-slate-400 mt-1">
+          El Matrimonio_ID se vinculará automáticamente en el Excel.
+        </p>
+      </div>
+
+      <!-- Ausencias -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+          Fechas de Ausencia <span class="text-slate-400 font-normal">(opcional)</span>
+        </label>
+        <input id="modal-ausencias" type="text"
+               placeholder="08/04, 15/04"
+               class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm
+                      focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-200">
+        <p class="text-xs text-slate-400 mt-1">
+          Escribe las fechas separadas por comas (ej: 08/04, 15/04). El sistema saltará a esta persona en esas semanas.
+        </p>
+      </div>
+
+      <!-- Sección foto (solo modo añadir) -->
+      <div id="modal-foto-section" class="mb-4 hidden">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+          Foto <span class="text-slate-400 font-normal">(opcional)</span>
+        </label>
+        <div class="flex items-center gap-4">
+          <div id="foto-preview-circle"
+               class="w-16 h-16 rounded-full border-2 border-dashed border-slate-300
+                      flex items-center justify-center text-slate-400 overflow-hidden flex-shrink-0">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+          </div>
+          <label class="flex-1 cursor-pointer">
+            <span class="block px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-500
+                         hover:bg-slate-50 transition text-center">
+              Seleccionar imagen...
+            </span>
+            <input type="file" id="modal-foto-input" accept="image/*"
+                   class="hidden" onchange="previsualizarFoto(this)">
+          </label>
+        </div>
+        <p class="text-xs text-slate-400 mt-1">JPG, PNG o WEBP. Se guardará en la carpeta fotos/</p>
+      </div>
+
+      <!-- Mensaje de error/éxito -->
+      <div id="modal-msg" class="hidden mb-4 px-3 py-2 rounded-lg text-sm font-medium"></div>
+
+      <!-- Botones -->
+      <div class="flex gap-3 justify-end pt-2">
+        <button onclick="cerrarModal()"
+                class="px-4 py-2 rounded-lg border border-slate-200 text-sm font-semibold
+                       text-slate-600 hover:bg-slate-50 transition">
+          Cancelar
+        </button>
+        <button id="modal-save-btn" onclick="guardarPersona()"
+                class="px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold
+                       hover:bg-blue-700 transition flex items-center gap-2">
+          <span id="modal-save-icon">💾</span>
+          <span id="modal-save-label">Guardar</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════════════════════════ -->
+<script>
+let _modoModal = 'editar';   // 'editar' | 'nuevo'
+let _fotob64   = '';         // base64 de la foto nueva
+
+/* ─── Helper: poblar select de cónyuge ────────────────────── */
+function _poblarSelectConyuge(excluirNombre, conyugeActual) {
+  const sel = document.getElementById('modal-conyuge');
+  sel.innerHTML = '<option value="">--- Sin Asignar / Soltero ---</option>';
+  document.querySelectorAll('.persona-card').forEach(card => {
+    if (card.dataset.nombre === excluirNombre) return;
+    const opt = document.createElement('option');
+    opt.value       = card.dataset.nombre;
+    opt.textContent = card.dataset.nombre;
+    if (card.dataset.nombre === conyugeActual) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+/* ─── Helper: encontrar cónyuge actual por Matrimonio_ID ──── */
+function _encontrarConyuge(nombreActual, matId) {
+  if (!matId) return '';
+  for (const card of document.querySelectorAll('.persona-card')) {
+    if (card.dataset.nombre !== nombreActual &&
+        card.dataset.matrimonio === String(matId)) {
+      return card.dataset.nombre;
+    }
+  }
+  return '';
+}
+
+/* ─── Abrir en modo EDITAR ─────────────────────────────────── */
+function abrirModalEditar(card) {
+  _modoModal = 'editar';
+  _fotob64   = '';
+
+  const nombre    = card.dataset.nombre;
+  const genero    = card.dataset.genero || 'H';
+  const rolesAct  = card.dataset.roles ? card.dataset.roles.split(',').map(r => r.trim()) : [];
+  const matId     = card.dataset.matrimonio;
+  const conyuge   = _encontrarConyuge(nombre, matId);
+  const ausencias = card.dataset.ausencias || '';
+
+  document.getElementById('modal-title').textContent    = `Editar: ${nombre}`;
+  document.getElementById('modal-nombre').value         = nombre;
+  document.getElementById('modal-nombre').disabled      = true;
+  document.getElementById('modal-ausencias').value      = ausencias;
+  document.getElementById('modal-foto-section').classList.add('hidden');
+
+  // Género
+  document.querySelectorAll('input[name="modal-genero"]').forEach(r => {
+    r.checked = r.value === genero;
+  });
+  // Roles
+  document.querySelectorAll('.modal-rol-check').forEach(cb => {
+    cb.checked = rolesAct.includes(cb.value);
+  });
+  // Cónyuge
+  _poblarSelectConyuge(nombre, conyuge);
+
+  _limpiarMsg();
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  document.getElementById('modal-nombre').focus();
+}
+
+/* ─── Abrir en modo NUEVO ──────────────────────────────────── */
+function abrirModalNuevo() {
+  _modoModal = 'nuevo';
+  _fotob64   = '';
+
+  document.getElementById('modal-title').textContent = 'Añadir Persona';
+  document.getElementById('modal-nombre').value      = '';
+  document.getElementById('modal-nombre').disabled   = false;
+  document.getElementById('modal-foto-section').classList.remove('hidden');
+
+  // Reset género
+  document.querySelectorAll('input[name="modal-genero"]').forEach(r => {
+    r.checked = r.value === 'H';
+  });
+  // Reset roles
+  document.querySelectorAll('.modal-rol-check').forEach(cb => cb.checked = false);
+  // Reset ausencias
+  document.getElementById('modal-ausencias').value = '';
+  // Cónyuge (todas las personas disponibles, sin preselección)
+  _poblarSelectConyuge('', '');
+  // Reset foto
+  document.getElementById('modal-foto-input').value = '';
+  const circle = document.getElementById('foto-preview-circle');
+  circle.innerHTML = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+  </svg>`;
+  circle.style.background = '';
+
+  _limpiarMsg();
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  document.getElementById('modal-nombre').focus();
+}
+
+/* ─── Vista previa foto ────────────────────────────────────── */
+function previsualizarFoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    _fotob64 = e.target.result; // data URI completo
+    const circle = document.getElementById('foto-preview-circle');
+    circle.innerHTML = `<img src="${_fotob64}" class="w-full h-full object-cover">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+/* ─── Guardar ──────────────────────────────────────────────── */
+async function guardarPersona() {
+  const btn      = document.getElementById('modal-save-btn');
+  const btnIcon  = document.getElementById('modal-save-icon');
+  const btnLabel = document.getElementById('modal-save-label');
+
+  const nombre    = document.getElementById('modal-nombre').value.trim();
+  const genero    = document.querySelector('input[name="modal-genero"]:checked')?.value || 'H';
+  const roles     = [...document.querySelectorAll('.modal-rol-check:checked')].map(c => c.value);
+  const conyuge   = document.getElementById('modal-conyuge').value;
+  const ausencias = document.getElementById('modal-ausencias').value.trim();
+
+  if (!nombre) { _mostrarMsg('Escribe un nombre.', 'error'); return; }
+
+  btn.disabled  = true;
+  btnIcon.textContent  = '⏳';
+  btnLabel.textContent = 'Guardando...';
+
+  const url  = _modoModal === 'editar' ? '/api/personal/actualizar' : '/api/personal/nuevo';
+  const body = { nombre, genero, roles, conyuge, ausencias };
+  if (_modoModal === 'nuevo' && _fotob64) body.foto_b64 = _fotob64;
+
+  try {
+    const resp = await fetch(url, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify(body),
+    });
+    const data = await resp.json();
+
+    if (data.ok) {
+      _mostrarMsg('✅ Guardado correctamente.', 'ok');
+      btnIcon.textContent  = '✅';
+      btnLabel.textContent = 'Guardado';
+      // Recargar la página después de un momento para reflejar cambios
+      setTimeout(() => location.reload(), 900);
+    } else {
+      _mostrarMsg('❌ ' + data.error, 'error');
+      _resetSaveBtn();
+    }
+  } catch (err) {
+    _mostrarMsg('❌ Error de conexión: ' + err.message, 'error');
+    _resetSaveBtn();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ─── Cerrar ───────────────────────────────────────────────── */
+function cerrarModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+  _resetSaveBtn();
+}
+
+/* ─── Helpers ──────────────────────────────────────────────── */
+function _mostrarMsg(texto, tipo) {
+  const el = document.getElementById('modal-msg');
+  el.textContent = texto;
+  el.className   = `mb-4 px-3 py-2 rounded-lg text-sm font-medium ${
+    tipo === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-red-50 text-red-700 border border-red-200'
+  }`;
+  el.classList.remove('hidden');
+}
+
+function _limpiarMsg() {
+  const el = document.getElementById('modal-msg');
+  el.classList.add('hidden');
+  el.textContent = '';
+}
+
+function _resetSaveBtn() {
+  document.getElementById('modal-save-icon').textContent  = '💾';
+  document.getElementById('modal-save-label').textContent = 'Guardar';
+}
+
+// Cerrar con Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') cerrarModal();
+});
+
+/* ─── Filtro por género ────────────────────────────────────── */
+function filtrarPorGenero(genero) {
+  document.querySelectorAll('.persona-card').forEach(card => {
+    const visible = genero === 'todos' || card.dataset.genero === genero;
+    card.style.display = visible ? '' : 'none';
+  });
+
+  // Estilos de botones activo/inactivo
+  const estilos = {
+    todos: { activo: 'bg-slate-800 text-white shadow-sm',
+             inactivo: 'border border-slate-200 text-slate-600 hover:bg-slate-50' },
+    H:     { activo: 'bg-blue-600 text-white shadow-sm',
+             inactivo: 'border border-blue-200 text-blue-700 hover:bg-blue-50' },
+    M:     { activo: 'bg-pink-500 text-white shadow-sm',
+             inactivo: 'border border-pink-200 text-pink-600 hover:bg-pink-50' },
+  };
+
+  ['todos', 'H', 'M'].forEach(key => {
+    const btn = document.getElementById(`filtro-${key}`);
+    if (!btn) return;
+    const { activo, inactivo } = estilos[key];
+    // Limpiar ambos conjuntos de clases antes de aplicar el correcto
+    [...activo.split(' '), ...inactivo.split(' ')].forEach(c => btn.classList.remove(c));
+    (key === genero ? activo : inactivo).split(' ').forEach(c => btn.classList.add(c));
+  });
+}
+
+/* ─── Toggle Activo/Inactivo ───────────────────────────────── */
+async function toggleActivo(btn) {
+  const nombre = btn.dataset.nombre;
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳';
+
+  try {
+    const resp = await fetch('/api/personal/toggle_activo', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ nombre }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      alert('Error: ' + data.error);
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
+  } catch (err) {
+    alert('Error de conexión: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+}
+</script>
+
+{% endblock %}
