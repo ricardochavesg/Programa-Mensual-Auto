@@ -465,10 +465,13 @@ def renderizar(programa: dict) -> Path:
 
     # 4. Capturar PNG
     print("[Renderer 4/4] Capturando PNG con Chrome headless (2x Retina)...")
-    # Altura estimada con avatares de 85 px: header + filas*(95) + cabeceras de sección
+    # Altura con margen de sobra (letra grande, fechas en 2 líneas, celdas con
+    # varias personas): el espacio blanco sobrante se recorta después con PIL,
+    # así que pasarse no afecta, pero quedarse corto corta la imagen.
     n_secciones = len({f["seccion"] for f in ctx["filas"]})
-    alto_est    = 120 + n_filas * 95 + n_secciones * 36 + 60
-    alto_seguro = max(alto_est, 1600)
+    alto_seguro = max(400 + n_filas * 130 + n_secciones * 60, 1600)
+    # Ancho: 1400 px del programa + 20 px de margen a cada lado
+    ancho = 1440
 
     hti = Html2Image(
         output_path=str(OUTPUT_PNG.parent),
@@ -484,7 +487,7 @@ def renderizar(programa: dict) -> Path:
     hti.screenshot(
         html_file=str(TEMP_HTML),
         save_as=OUTPUT_PNG.name,
-        size=(1400, alto_seguro),   # CSS pixels; con scale-factor=2 → 2800×(alto×2) px reales
+        size=(ancho, alto_seguro),  # CSS pixels; con scale-factor=2 → 2880×(alto×2) px reales
     )
 
     if OUTPUT_PNG.exists():

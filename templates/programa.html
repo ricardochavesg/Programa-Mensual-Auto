@@ -78,8 +78,8 @@ th, td {
   margin-top: 2px;
 }
 .col-label-th {
-  background: #0f172a;
-  color: #94a3b8;
+  /* Fondo: color del encabezado oscurecido (ver plantilla) */
+  color: rgba(255,255,255,0.75);
   font-size: 14px;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -218,7 +218,8 @@ th, td {
   <table>
     <thead>
       <tr>
-        <th class="col-label col-label-th">Asignación</th>
+        <th class="col-label col-label-th"
+            style="background: linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), {{ banner_color }}">Asignación</th>
         {% for h in headers %}
         <th class="week-th" style="background:{{ banner_color }}">
           <span class="fecha">{{ h.fecha }}</span>

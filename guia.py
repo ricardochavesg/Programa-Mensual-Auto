@@ -190,7 +190,10 @@ def obtener_semana(lunes: date, usar_cache: bool = True) -> dict:
 # Disponibilidad (para el selector de mes)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_disponibles: set[tuple[int, int]] = set()   # meses ya confirmados en esta sesión
+# Resultados ya consultados en esta sesión: {(anio, mes): (estado, momento)}.
+# 'disponible' no cambia; los demás se vuelven a consultar pasados unos minutos.
+_consultas: dict[tuple[int, int], tuple[str, float]] = {}
+_REPETIR_TRAS = 600   # segundos
 
 
 def disponibilidad_mes(anio: int, mes: int) -> str:
@@ -200,28 +203,29 @@ def disponibilidad_mes(anio: int, mes: int) -> str:
     'sin_conexion'  → no se pudo consultar (sin internet).
     La descarga queda en caché, así que generar ese mes luego es inmediato.
     """
-    if (anio, mes) in _disponibles:
-        return "disponible"
+    import time
+
+    previo = _consultas.get((anio, mes))
+    if previo and (previo[0] == "disponible" or time.time() - previo[1] < _REPETIR_TRAS):
+        return previo[0]
+
     semanas = lunes_del_mes(anio, mes)
     if not semanas:
-        return "no_disponible"
-    try:
-        obtener_semana(semanas[-1])
-    except GuiaNoDisponible:
-        return "no_disponible"
-    except SinConexion:
-        return "sin_conexion"
-    _disponibles.add((anio, mes))
-    return "disponible"
-
-
-def disponibilidad_anio(anio: int) -> dict[int, str]:
-    """Disponibilidad de los 12 meses del año (consultas en paralelo)."""
-    from concurrent.futures import ThreadPoolExecutor
-
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        estados = pool.map(lambda m: disponibilidad_mes(anio, m), range(1, 13))
-    return dict(zip(range(1, 13), estados))
+        estado = "no_disponible"
+    else:
+        try:
+            obtener_semana(semanas[-1])
+            estado = "disponible"
+        except GuiaNoDisponible:
+            estado = "no_disponible"
+        except SinConexion:
+            estado = "sin_conexion"
+        except Exception as exc:   # página inesperada: no bloquear el selector
+            print(f"  [WARN] Disponibilidad {anio}-{mes:02d}: {exc}")
+            estado = "sin_conexion"
+    _consultas[(anio, mes)] = (estado, time.time())
+    print(f"     Guía {anio}-{mes:02d}: {estado.replace('_', ' ')}")
+    return estado
 
 
 # ─────────────────────────────────────────────────────────────────────────────

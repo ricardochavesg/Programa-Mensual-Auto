@@ -452,12 +452,13 @@ def api_descartar_borrador():
 
 @app.route("/api/disponibilidad")
 def api_disponibilidad():
-    """Qué meses del año tienen la guía publicada en wol.jw.org (o en caché)."""
+    """Si la guía de un mes está publicada en wol.jw.org (o ya en caché)."""
     try:
-        anio = int(request.args.get("anio", ""))
+        anio, mes = int(request.args.get("anio", "")), int(request.args.get("mes", ""))
     except ValueError:
-        return jsonify({"ok": False, "error": "Año inválido"}), 400
-    return jsonify({"ok": True, "anio": anio, "meses": guia.disponibilidad_anio(anio)})
+        return jsonify({"ok": False, "error": "Año o mes inválido"}), 400
+    return jsonify({"ok": True, "anio": anio, "mes": mes,
+                    "estado": guia.disponibilidad_mes(anio, mes)})
 
 
 @app.route("/api/config", methods=["POST"])

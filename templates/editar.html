@@ -122,8 +122,8 @@
   <table class="w-full border-collapse" style="min-width: 700px">
     <thead>
       <tr>
-        <th class="bg-slate-900 text-slate-400 text-xs uppercase tracking-widest px-4 py-3 text-left font-medium"
-            style="width:160px">Asignación</th>
+        <th id="th-asignacion" class="text-white/75 text-xs uppercase tracking-widest px-4 py-3 text-left font-medium"
+            style="width:160px; background: linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), {{ banner_color }}">Asignación</th>
         {% for h in tabla.headers %}
         <th class="th-semana text-white px-3 py-3 text-center" style="background:{{ banner_color }}">
           <span class="block font-extrabold text-sm text-white">{{ h.fecha }}</span>
@@ -802,7 +802,7 @@ async function pintarMeses() {
   grid.innerHTML = '';
   MESES.forEach((nombre, i) => {
     const m = i + 1;
-    const estado = estados ? estados[m] : 'cargando';
+    const estado = (estados && estados[m]) || 'cargando';
     const punto = {
       disponible:    'bg-emerald-500',
       no_disponible: 'bg-slate-300',
@@ -832,19 +832,35 @@ async function pintarMeses() {
     grid.appendChild(btn);
   });
 
-  // Consultar la disponibilidad del año una sola vez
-  if (!estados) {
-    const anio = anioPanel;
-    ESTADOS_MES[anio] = null;
+  if (!estados) consultarAnio(anioPanel);
+}
+
+/** Consulta cada mes por separado: cada casilla se actualiza apenas responde. */
+function consultarAnio(anio) {
+  ESTADOS_MES[anio] = {};
+  const [aSel, mSel] = document.getElementById('input-mes').value.split('-').map(Number);
+  const hoy = new Date();
+  // Primero el mes elegido y los cercanos a hoy (los que más interesan)
+  const orden = [...Array(12).keys()].map(i => i + 1).sort((a, b) => {
+    const prioridad = m => (anio === aSel && m === mSel) ? -1
+      : Math.abs((anio - hoy.getFullYear()) * 12 + m - 1 - hoy.getMonth());
+    return prioridad(a) - prioridad(b);
+  });
+  orden.forEach(async m => {
+    const control = new AbortController();
+    const limite = setTimeout(() => control.abort(), 45000);
+    let estado = 'sin_conexion';
     try {
-      const resp = await fetch(`/api/disponibilidad?anio=${anio}`);
+      const resp = await fetch(`/api/disponibilidad?anio=${anio}&mes=${m}`, { signal: control.signal });
       const data = await resp.json();
-      if (data.ok) ESTADOS_MES[anio] = data.meses;
-    } catch (_) {
-      ESTADOS_MES[anio] = Object.fromEntries(MESES.map((_, i) => [i + 1, 'sin_conexion']));
+      if (data.ok) estado = data.estado;
+    } catch (_) {}
+    clearTimeout(limite);
+    ESTADOS_MES[anio][m] = estado;
+    if (anio === anioPanel && !document.getElementById('panel-mes').classList.contains('hidden')) {
+      pintarMeses();
     }
-    if (anio === anioPanel && ESTADOS_MES[anio]) pintarMeses();
-  }
+  });
 }
 
 document.addEventListener('click', e => {
@@ -862,6 +878,8 @@ function colorBanner() {
 function elegirColor(color) {
   document.getElementById('input-color').value = color;
   document.querySelectorAll('.th-semana').forEach(th => th.style.background = color);
+  document.getElementById('th-asignacion').style.background =
+    `linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), ${color}`;
   document.querySelectorAll('.swatch').forEach(b => {
     const activo = b.dataset.color.toLowerCase() === color.toLowerCase();
     b.classList.toggle('ring-2', activo);
