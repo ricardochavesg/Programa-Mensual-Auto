@@ -23,8 +23,10 @@ _CFG_PATH = external_path("config.json")
 try:
     _cfg = json.loads(_CFG_PATH.read_text(encoding="utf-8"))
     DIA_REUNION: str = _cfg.get("dia_reunion", "Miércoles")
+    DIA_FDS: str = _cfg.get("dia_fds", "Domingo")
 except Exception:
     DIA_REUNION = "Miércoles"
+    DIA_FDS = "Domingo"
 
 # Meses en español -> número
 MESES = {
@@ -95,6 +97,12 @@ def calcular_dia_reunion(fecha_inicio: date, dia_semana: str = DIA_REUNION) -> d
     return fecha_inicio + timedelta(days=dias)
 
 
+def calcular_dia_fds(fecha_inicio: date, dia_semana: str = DIA_FDS) -> date:
+    """Dado el lunes de la semana, devuelve la fecha de la reunión de fin de semana."""
+    objetivo = {"Sábado": 5, "Sabado": 5, "Domingo": 6}.get(dia_semana, 6)
+    return fecha_inicio + timedelta(days=(objetivo - fecha_inicio.weekday()) % 7)
+
+
 def formatear_fecha_exacta(d: date, dia_semana: str = DIA_REUNION) -> str:
     """Devuelve la fecha con el patrón 'Día-DD-MM-AA', ej: 'Miércoles-15-04-26'."""
     return f"{dia_semana}-{d.strftime('%d-%m-%y')}"
@@ -148,9 +156,10 @@ def clasificar_estudio_biblico(titulo: str) -> dict:
 # Extractor principal de secciones del HTML de JW.org
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _extraer_secciones_articulo(soup: BeautifulSoup) -> dict[str, list[str]]:
+def _extraer_secciones_articulo(soup) -> dict[str, list[str]]:
     """
-    Recorre el <article> de la página de JW.org y extrae las partes numeradas
+    Recorre el <article> de la página de JW.org (o el contenedor recibido)
+    y extrae las partes numeradas
     de cada sección usando un autómata de estados sobre h2/h3.
 
     Estructura real de JW.org:
@@ -174,7 +183,7 @@ def _extraer_secciones_articulo(soup: BeautifulSoup) -> dict[str, list[str]]:
         "vida_cristiana": ["7. Título...", "8. Estudio bíblico..."],
       }
     """
-    article = soup.find("article")
+    article = soup.find("article") if isinstance(soup, BeautifulSoup) else soup
     if not article:
         # Fallback: usar todo el documento
         article = soup
@@ -306,8 +315,22 @@ def _extraer_rango_fechas(soup: BeautifulSoup, ruta: Path) -> str | None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def parsear_archivo(ruta: Path) -> dict | None:
+    """Procesa un archivo HTML/HTM de JW.org guardado en disco."""
+    try:
+        html = ruta.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        html = ruta.read_text(encoding="latin-1")
+    return parsear_html(html, ruta.name, ruta=ruta)
+
+
+def construir_semana(
+    nombre: str,
+    rango: str,
+    fecha_inicio: date | None,
+    secciones: dict[str, list[str]],
+) -> dict:
     """
-    Procesa un archivo HTML/HTM de JW.org y devuelve:
+    Arma el dict estándar de una semana:
 
     {
         "archivo":        str,
@@ -322,36 +345,19 @@ def parsear_archivo(ruta: Path) -> dict | None:
         }
     }
     """
-    try:
-        html = ruta.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        html = ruta.read_text(encoding="latin-1")
-
-    soup = BeautifulSoup(html, "lxml")
-
-    # ── Fechas ──
-    rango = _extraer_rango_fechas(soup, ruta)
-    if not rango:
-        print(f"  [WARN] No se encontro rango de fechas en {ruta.name}")
-        rango = "Desconocido"
-
-    fecha_inicio  = extraer_fecha_inicio(rango) if rango != "Desconocido" else None
     fecha_reunion = calcular_dia_reunion(fecha_inicio) if fecha_inicio else None
     fecha_exacta  = formatear_fecha_exacta(fecha_reunion) if fecha_reunion else ""
 
-    # ── Partes del programa ──
-    secciones = _extraer_secciones_articulo(soup)
-
-    tesoros       = parsear_tesoros(secciones.get("tesoros", []))
-    maestros      = parsear_maestros(secciones.get("maestros", []))
-    vida_cristiana= parsear_vida_cristiana(secciones.get("vida_cristiana", []))
+    tesoros        = parsear_tesoros(secciones.get("tesoros", []))
+    maestros       = parsear_maestros(secciones.get("maestros", []))
+    vida_cristiana = parsear_vida_cristiana(secciones.get("vida_cristiana", []))
 
     if not (tesoros or maestros or vida_cristiana):
-        print(f"  [WARN] No se extrajeron partes de {ruta.name}. "
+        print(f"  [WARN] No se extrajeron partes de {nombre}. "
               "Verifica que sea un HTML valido de JW.org.")
 
     return {
-        "archivo":       ruta.name,
+        "archivo":       nombre,
         "rango_fechas":  rango,
         "fecha_inicio":  fecha_inicio,
         "fecha_reunion": fecha_reunion,
@@ -364,11 +370,24 @@ def parsear_archivo(ruta: Path) -> dict | None:
     }
 
 
+def parsear_html(html: str, nombre: str, ruta: Path | None = None) -> dict:
+    """Procesa el HTML de una semana de la guía de actividades."""
+    soup = BeautifulSoup(html, "lxml")
+
+    rango = _extraer_rango_fechas(soup, ruta or Path(nombre))
+    if not rango:
+        print(f"  [WARN] No se encontro rango de fechas en {nombre}")
+        rango = "Desconocido"
+    fecha_inicio = extraer_fecha_inicio(rango) if rango != "Desconocido" else None
+
+    return construir_semana(nombre, rango, fecha_inicio, _extraer_secciones_articulo(soup))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Entrada principal
 # ─────────────────────────────────────────────────────────────────────────────
 
-def parsear_todos() -> list[dict]:
+def parsear_todos(silencioso: bool = False) -> list[dict]:
     """
     Lee todos los archivos .html y .htm de INPUT_DIR.
     Devuelve la lista de semanas estructuradas, ordenada por fecha.
@@ -380,6 +399,8 @@ def parsear_todos() -> list[dict]:
     )
 
     if not archivos:
+        if silencioso:
+            return []
         print(f"[WARN] No se encontraron archivos HTML/HTM en: {INPUT_DIR}")
         print("       Descarga los programas de JW.org y guardalo(s) en esa carpeta.")
         return []
@@ -391,7 +412,8 @@ def parsear_todos() -> list[dict]:
         datos = parsear_archivo(ruta)
         if datos:
             resultados.append(datos)
-            _imprimir_resumen(datos)
+            if not silencioso:
+                _imprimir_resumen(datos)
 
     # Ordenar por fecha de reunión (semanas sin fecha al final)
     resultados.sort(key=lambda s: s["fecha_reunion"] or date.max)

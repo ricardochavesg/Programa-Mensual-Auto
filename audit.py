@@ -2,7 +2,7 @@
 audit.py
 Script de Auditoría de Calidad del Programa Mensual.
 
-Lee programa_mes.json y Personal_nuevo.xlsx y valida que el motor de asignación
+Lee programa_mes.json y la base de datos (programa.db) y valida que el motor de asignación
 no violó ninguna regla de negocio.
 
 Uso:
@@ -17,16 +17,15 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-import pandas as pd
+import db
 
 # Forzar UTF-8 en stdout para que los emojis y caracteres especiales
 # se muestren correctamente en Windows
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 PROGRAMA_JSON = Path(__file__).parent / "programa_mes.json"
-PERSONAL_FILE = Path(__file__).parent / "Personal_nuevo.xlsx"
 
-# Roles exentos de la regla de descanso y de duplicidad cross-session
+# Roles exentos de la regla de descanso
 ROLES_SIN_DESCANSO: frozenset = frozenset({"Camara", "Zoom", "Acomodador"})
 
 
@@ -35,21 +34,11 @@ ROLES_SIN_DESCANSO: frozenset = frozenset({"Camara", "Zoom", "Acomodador"})
 # ─────────────────────────────────────────────────────────────────────────────
 
 def cargar_personal() -> dict[str, dict]:
-    """Devuelve {nombre: {genero, roles}} leyendo Personal_nuevo.xlsx."""
-    df = pd.read_excel(PERSONAL_FILE, sheet_name="Personal")
-    personal: dict[str, dict] = {}
-    for _, row in df.iterrows():
-        nombre = str(row["Nombre"]).strip()
-        genero = str(row.get("Genero") or "H").strip().upper()
-        raw_roles = row.get("Roles")
-        roles_str = "" if pd.isna(raw_roles) else str(raw_roles).strip()
-        roles = {
-            r.strip()
-            for r in roles_str.split(",")
-            if r.strip() and r.strip().lower() != "nan"
-        }
-        personal[nombre] = {"genero": genero, "roles": roles}
-    return personal
+    """Devuelve {nombre: {genero, roles}} leyendo la base de datos."""
+    return {
+        p["nombre"]: {"genero": p["genero"], "roles": set(p["roles"])}
+        for p in db.listar_personas()
+    }
 
 
 def cargar_programa() -> dict:
@@ -163,9 +152,9 @@ class Auditoria:
             # R2 — No-Duplicidad semanal
             self._r2_duplicados(rango, es, fd)
 
-            # R3 — Regla de descanso (desde semana 2 en adelante)
+            # R3 — Regla de descanso entre semana (desde semana 2 en adelante)
             if idx > 0:
-                self._r3_descanso(rango, es + fd, personas_es_anterior)
+                self._r3_descanso(rango, es, personas_es_anterior)
 
             # R4 — Conductor Atalaya no en fin de semana
             self._r4_conductor_atalaya(rango, fd)
@@ -222,14 +211,8 @@ class Auditoria:
             if len(roles) > 1:
                 errores.append((nombre, f"aparece {len(roles)}× en fin-de-semana: {roles}"))
 
-        # Cross-session: misma persona en ambos pools con rol NO exento en fin-de-semana
-        nombres_es = {n for n, _ in es if n}
-        for nombre, rol_fd in fd:
-            if nombre and nombre in nombres_es and rol_fd not in ROLES_SIN_DESCANSO:
-                roles_es = [r for n, r in es if n == nombre]
-                errores.append((nombre,
-                    f"tiene rol(es) entre-semana {roles_es} "
-                    f"Y fin-de-semana '{rol_fd}' (no exento)"))
+        # Entre semana y fin de semana son reuniones independientes:
+        # repetir persona entre ambas está permitido.
 
         if errores:
             for nombre, detalle in errores:
@@ -297,7 +280,7 @@ class Auditoria:
             info = self.personal.get(nombre)
             if info is None:
                 self._error(rango, nombre, "R5a-Discurso_H Género",
-                            f"'{nombre}' no se encontró en Personal.xlsx")
+                            f"'{nombre}' no se encontró en el catálogo")
                 continue
             if info["genero"] != "H":
                 errores.append(nombre)
@@ -327,7 +310,7 @@ class Auditoria:
             info = self.personal.get(nombre)
             if info is None:
                 self._error(rango, nombre, "R5b-Pareja Género",
-                            f"'{nombre}' no se encontró en Personal.xlsx")
+                            f"'{nombre}' no se encontró en el catálogo")
                 continue
             if info["genero"] != "M":
                 errores.append((nombre, info["genero"]))
@@ -427,8 +410,8 @@ def main() -> None:
     if not PROGRAMA_JSON.exists():
         print(f"❌  No se encontró '{PROGRAMA_JSON}'. Genera el programa primero (python main.py).")
         sys.exit(1)
-    if not PERSONAL_FILE.exists():
-        print(f"❌  No se encontró '{PERSONAL_FILE}'.")
+    if not db.DB_FILE.exists():
+        print(f"❌  No se encontró '{db.DB_FILE}'.")
         sys.exit(1)
 
     programa = cargar_programa()

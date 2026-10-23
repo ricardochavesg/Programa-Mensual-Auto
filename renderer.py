@@ -8,29 +8,27 @@ Flujo:
   3. Renderiza templates/programa.html con Jinja2 → temp.html
   4. Captura PNG con html2image (Chrome headless, 1240 px)
   5. Recorta espacio blanco inferior con PIL
-  6. Actualiza Carga_Acumulada en Personal.xlsx (solo asignados)
+
+(El historial de asignaciones se guarda desde app.py en la base de datos.)
 """
 
 from __future__ import annotations
 
 import base64
-import math
-import shutil
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 from html2image import Html2Image
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 
+import db
 from paths import external_path, internal_path
 
 # Externos: junto al .exe, el usuario interactúa con ellos
 FOTOS_DIR     = external_path("fotos")
-PERSONAL_FILE = external_path("Personal_nuevo.xlsx")
 TEMP_HTML     = external_path("temp.html")
 OUTPUT_PNG    = external_path("Programa_Mes.png")
 
@@ -196,21 +194,15 @@ def _build_foto_map() -> dict[str, Optional[str]]:
                                      con o sin extensión).
       2. Si Foto_Path está vacío   → intentar Nombre + extensiones conocidas.
     """
-    if not PERSONAL_FILE.exists():
-        print(f"[WARN] Personal.xlsx no encontrado en: {PERSONAL_FILE.resolve()}")
-        return {}
-
     archivos_en_disco = list(FOTOS_DIR.glob("*.*")) if FOTOS_DIR.exists() else []
     print(f"         Carpeta fotos : {FOTOS_DIR}")
     print(f"         Fotos en disco: {len(archivos_en_disco)} archivo(s)")
 
-    df = pd.read_excel(PERSONAL_FILE, sheet_name="Personal")
     foto_map: dict[str, Optional[str]] = {}
 
-    for _, row in df.iterrows():
-        nombre   = str(row["Nombre"]).strip()
-        raw_foto = row.get("Foto_Path")
-        foto_rel = "" if pd.isna(raw_foto) else str(raw_foto).strip()
+    for persona in db.listar_personas():
+        nombre   = persona["nombre"]
+        foto_rel = persona["foto_path"]
 
         # Elegir candidato a buscar: Foto_Path si existe, sino el Nombre de la persona
         candidato = foto_rel if foto_rel else nombre
@@ -422,47 +414,6 @@ def _normalizar(programa: dict, foto_map: dict) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Actualizar Excel
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _actualizar_carga_excel(resumen_carga: dict) -> None:
-    """
-    Escribe los valores `fin` de resumen_carga de vuelta en Carga_Acumulada.
-    Solo toca a las personas con delta > 0.
-    """
-    if not PERSONAL_FILE.exists():
-        print("[WARN] Personal.xlsx no encontrado. No se actualiza carga.")
-        return
-
-    # Auto-backup antes de sobrescribir
-    backups_dir = PERSONAL_FILE.parent / "backups"
-    backups_dir.mkdir(exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = backups_dir / f"Personal_backup_{ts}.xlsx"
-    shutil.copy2(PERSONAL_FILE, backup_path)
-    print(f"[OK] Backup guardado en: backups/{backup_path.name}")
-
-    df = pd.read_excel(PERSONAL_FILE, sheet_name="Personal")
-    actualizados = 0
-    for nombre, datos in resumen_carga.items():
-        if datos.get("delta", 0) > 0:
-            mask = df["Nombre"] == nombre
-            if mask.any():
-                df.loc[mask, "Carga_Acumulada"] = datos["fin"]
-                actualizados += 1
-
-    try:
-        with pd.ExcelWriter(PERSONAL_FILE, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="Personal")
-        print(f"[OK] Carga_Acumulada actualizada para {actualizados} persona(s) en {PERSONAL_FILE.name}")
-    except PermissionError:
-        print(
-            f"[WARN] No se pudo guardar '{PERSONAL_FILE.name}' porque esta abierto en otra aplicacion.\n"
-            "       Cierra Excel y vuelve a ejecutar: python renderer.py --solo-carga"
-        )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Recorte de espacio blanco
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -494,13 +445,12 @@ def _recortar_blanco(png_path: Path, padding: int = 40) -> None:
 # Función principal
 # ─────────────────────────────────────────────────────────────────────────────
 
-def renderizar(programa: dict, actualizar_carga: bool = True) -> Path:
+def renderizar(programa: dict) -> Path:
     """
     Genera Programa_Mes.png a partir del dict del assignator.
 
     Args:
-        programa:        Dict devuelto por assignator.generar_programa().
-        actualizar_carga: Si True (por defecto), actualiza Personal.xlsx al final.
+        programa: Dict devuelto por assignator.generar_programa() (ya editado).
 
     Returns:
         Path del PNG generado.
@@ -558,31 +508,20 @@ def renderizar(programa: dict, actualizar_carga: bool = True) -> Path:
     else:
         print("[WARN] No se encontro el PNG de salida. Revisa si Chrome esta disponible.")
 
-    # 5. Actualizar Excel
-    if actualizar_carga and OUTPUT_PNG.exists():
-        _actualizar_carga_excel(programa.get("resumen_carga", {}))
-
     return OUTPUT_PNG
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Uso standalone: python renderer.py [--solo-carga]
+# Uso standalone: python renderer.py
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import sys
     import json
+    import sys
 
-    if "--solo-carga" in sys.argv:
-        # Modo rápido: solo actualizar Excel desde el JSON existente
-        if not OUTPUT_JSON.exists():
-            print(f"[ERROR] No se encontro {OUTPUT_JSON}. Ejecuta main.py primero.")
-            sys.exit(1)
-        prog = json.loads(OUTPUT_JSON.read_text(encoding="utf-8"))
-        _actualizar_carga_excel(prog.get("resumen_carga", {}))
-    else:
-        if not OUTPUT_JSON.exists():
-            print(f"[ERROR] No se encontro {OUTPUT_JSON}. Ejecuta main.py primero.")
-            sys.exit(1)
-        prog = json.loads(OUTPUT_JSON.read_text(encoding="utf-8"))
-        renderizar(prog)
+    from assignator import OUTPUT_JSON
+
+    if not OUTPUT_JSON.exists():
+        print(f"[ERROR] No se encontro {OUTPUT_JSON}. Ejecuta main.py primero.")
+        sys.exit(1)
+    renderizar(json.loads(OUTPUT_JSON.read_text(encoding="utf-8")))

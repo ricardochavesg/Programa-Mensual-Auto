@@ -14,13 +14,37 @@
 </div>
 {% endif %}
 
+<!-- Avisos del generador (semanas sin guía, roles sin candidatos, repeticiones) -->
+{% if avisos %}
+<div id="banner-avisos"
+     class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm shadow-sm">
+  <div class="flex items-center justify-between gap-3">
+    <span class="font-semibold">⚠️ {{ avisos|length }} aviso(s) al generar el programa</span>
+    <button onclick="this.closest('#banner-avisos').remove()"
+            class="text-red-400 hover:text-red-600 transition font-black text-lg leading-none">×</button>
+  </div>
+  <ul class="list-disc ml-5 mt-2 space-y-0.5">
+    {% for a in avisos %}<li>{{ a }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <!-- Barra de acciones -->
 <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
   <div>
     <h1 class="text-2xl font-black tracking-wide text-slate-800">Editar Programa</h1>
     <p class="text-slate-500 text-sm mt-0.5">Haz clic en cualquier foto para cambiar la asignación</p>
   </div>
-  <div class="flex flex-wrap gap-3">
+  <div class="flex flex-wrap gap-3 items-center">
+    <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-300 bg-white shadow-sm">
+      <label for="input-mes" class="text-sm font-semibold text-slate-600">📅 Mes</label>
+      <input id="input-mes" type="month" value="{{ mes }}"
+             class="text-sm px-2 py-1 rounded-lg border border-slate-200 focus:outline-none focus:border-blue-400">
+      <button onclick="generarMes()"
+              class="px-3 py-1 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 transition">
+        Generar
+      </button>
+    </div>
     <button onclick="descartarBorrador()"
             class="px-5 py-2.5 rounded-xl border border-red-200 bg-white text-red-600 font-semibold text-sm hover:bg-red-50 transition shadow-sm">
       🗑️ Empezar de nuevo
@@ -246,11 +270,23 @@ function avatarStyle(p) {
 /* ═══════════════════════════════════════════════════════════════
    CANDIDATOS POR ROL
 ═══════════════════════════════════════════════════════════════ */
+function conteoMes() {
+  // Cuántas veces aparece cada persona en el programa que se está editando
+  const conteo = {};
+  document.querySelectorAll('.selector .slot-value').forEach(input => {
+    if (input.value) conteo[input.value] = (conteo[input.value] || 0) + 1;
+  });
+  return conteo;
+}
+
 function getCandidatos(rol) {
   const activos = PERSONAL.filter(p => p.activo !== false);
   let lista = activos.filter(p => p.roles.includes(rol));
   if (lista.length === 0) lista = activos;  // fallback: mostrar todos activos
-  return lista.slice().sort((a, b) => a.carga - b.carga || a.nombre.localeCompare(b.nombre));
+  const mes = conteoMes();
+  lista.forEach(p => p.mes = mes[p.nombre] || 0);
+  return lista.slice().sort((a, b) =>
+    a.mes - b.mes || a.carga - b.carga || a.nombre.localeCompare(b.nombre));
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -273,7 +309,7 @@ function buildCandidatoEl(p, nombreSeleccionado) {
     </div>
     <div class="min-w-0">
       <div class="text-sm font-semibold text-slate-800 truncate">${p.nombre}</div>
-      <div class="text-xs text-slate-400">Carga: ${p.carga}</div>
+      <div class="text-xs text-slate-400">Este mes: ${p.mes || 0} · Últimos 3 meses: ${p.carga}</div>
     </div>
     ${seleccionado ? '<svg class="w-4 h-4 text-blue-500 ml-auto flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>' : ''}
   `;
@@ -373,18 +409,27 @@ function seleccionarPersona(item) {
 /* ═══════════════════════════════════════════════════════════════
    VERIFICAR DUPLICADOS EN LA MISMA SEMANA
 ═══════════════════════════════════════════════════════════════ */
+function reunionDe(fieldId) {
+  // Entre semana y fin de semana son reuniones distintas: se puede repetir entre ellas
+  return fieldId.split('|')[1] === 'fin_de_semana' ? 'fds' : 'es';
+}
+
 function verificarDuplicados(semanaIdx) {
   // Todos los selectores de esta semana (excluye limpieza que es un <select>)
   const selectores = [...document.querySelectorAll('.selector')].filter(s => {
     const fid = s.querySelector('.slot-value')?.dataset.fieldId || '';
     return fid.startsWith(semanaIdx + '|');
   });
+  const clave = s => {
+    const input = s.querySelector('.slot-value');
+    return reunionDe(input.dataset.fieldId) + '|' + input.value;
+  };
 
-  // Conteo de apariciones por nombre
+  // Conteo de apariciones por nombre dentro de cada reunión
   const conteo = {};
   selectores.forEach(s => {
     const nombre = s.querySelector('.slot-value').value;
-    if (nombre) conteo[nombre] = (conteo[nombre] || 0) + 1;
+    if (nombre) conteo[clave(s)] = (conteo[clave(s)] || 0) + 1;
   });
 
   // Aplicar o quitar señal de duplicado en cada selector
@@ -392,7 +437,7 @@ function verificarDuplicados(semanaIdx) {
     const nombre  = s.querySelector('.slot-value').value;
     const circle  = s.querySelector('.avatar-circle');
     const avisoEl = s.querySelector('.duplicado-aviso');
-    const esDup   = nombre && conteo[nombre] > 1;
+    const esDup   = nombre && conteo[clave(s)] > 1;
 
     if (esDup) {
       circle.classList.remove('ring-blue-400');
@@ -495,7 +540,20 @@ async function descartarBorrador() {
   try {
     await fetch('/api/programa/descartar_borrador', { method: 'POST' });
   } catch (_) {}
-  location.href = '/editar';
+  location.href = '/editar?mes=' + encodeURIComponent(document.getElementById('input-mes').value);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GENERAR OTRO MES (descarga la guía automáticamente)
+═══════════════════════════════════════════════════════════════ */
+async function generarMes() {
+  const mes = document.getElementById('input-mes').value;
+  if (!mes) return;
+  if (!confirm(`¿Generar el programa de ${mes}? Se descartará el borrador actual.`)) return;
+  try {
+    await fetch('/api/programa/descartar_borrador', { method: 'POST' });
+  } catch (_) {}
+  location.href = '/editar?mes=' + encodeURIComponent(mes);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -654,6 +712,11 @@ function removeSlot(selectorDiv, event) {
   const si = fieldId.split('|')[0];
   verificarDuplicados(si);
 }
+
+// Marcar duplicados de la propuesta generada al cargar la página
+document.querySelectorAll('thead th').forEach((_, i) => {
+  if (i > 0) verificarDuplicados(i - 1);
+});
 </script>
 
 {% endblock %}

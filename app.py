@@ -5,8 +5,8 @@ Servidor Flask para edición interactiva del programa de reuniones.
 Rutas:
   GET  /          → redirige a /editar
   GET  /catalogo  → cuadrícula de todo el personal
-  GET  /editar    → genera propuesta y muestra tabla editable
-  POST /guardar   → aplica cambios y genera Programa_Mes.png
+  GET  /editar    → genera propuesta y muestra tabla editable (?mes=YYYY-MM)
+  POST /guardar   → aplica cambios, genera Programa_Mes.png y guarda el historial
   GET  /imagen    → sirve Programa_Mes.png generado
 """
 
@@ -20,10 +20,10 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 from flask import Flask, jsonify, redirect, render_template, request, send_file
 
 import assignator as engine
+import db
 import renderer
 from paths import external_path, internal_path
 
@@ -63,13 +63,7 @@ _hilo_vigilante = threading.Thread(target=_vigilante_heartbeat, daemon=True)
 _hilo_vigilante.start()
 
 # Lista maestra de roles internos
-ROLES_OFICIALES = [
-    "Camara", "Zoom", "Acomodador", "Presidente_ES", "Presidente_FDS",
-    "Diamante_1", "Diamante_2", "Diamante_3",
-    "Trigo", "Ayudante", "Discurso_H",
-    "Oveja", "Libro", "Lector_Libro",
-    "Conductor_Atalaya",
-]
+ROLES_OFICIALES = db.ROLES_OFICIALES
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,38 +71,22 @@ ROLES_OFICIALES = [
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _cargar_personal_con_fotos() -> list[dict]:
-    """Lee Personal_nuevo.xlsx y adjunta foto base64, iniciales y color."""
-    df = pd.read_excel(engine.PERSONAL_FILE, sheet_name="Personal")
+    """Lee el personal de la base de datos y adjunta foto base64, iniciales y color."""
+    carga = db.carga_reciente()
     result = []
-    for _, row in df.iterrows():
-        nombre    = str(row["Nombre"]).strip()
-        foto_path = str(row.get("Foto_Path") or "").strip()
-        roles_raw = row.get("Roles", "")
-        roles_str = "" if pd.isna(roles_raw) else str(roles_raw).strip()
-        roles     = [r.strip() for r in roles_str.split(",")
-                     if r.strip() and r.strip() != "nan"]
-        carga_raw = row.get("Carga_Acumulada")
-        carga     = 0 if pd.isna(carga_raw) else int(carga_raw)
-        genero_raw = row.get("Genero")
-        genero    = "H" if pd.isna(genero_raw) else str(genero_raw).strip().upper()
-        mat_raw   = row.get("Matrimonio_ID")
-        mat_id    = None if pd.isna(mat_raw) else int(mat_raw)
-        aus_raw   = row.get("Ausencias")
-        aus_str   = "" if pd.isna(aus_raw) else str(aus_raw).strip()
-        ausencias = ", ".join(f.strip() for f in aus_str.split(",") if f.strip())
-        activo_raw = row.get("Activo")
-        activo = str(activo_raw).strip().lower() not in ("no", "false", "0") if pd.notna(activo_raw) else True
+    for p in db.listar_personas():
+        nombre = p["nombre"]
         result.append({
             "nombre":        nombre,
-            "foto":          renderer._foto_a_b64(foto_path),
+            "foto":          renderer._foto_a_b64(p["foto_path"] or nombre),
             "iniciales":     renderer._iniciales(nombre),
             "color":         renderer._color_avatar(nombre),
-            "roles":         roles,
-            "carga":         carga,
-            "genero":        genero,
-            "matrimonio_id": mat_id,
-            "ausencias":     ausencias,
-            "activo":        activo,
+            "roles":         p["roles"],
+            "carga":         carga.get(nombre, 0),   # asignaciones en los últimos 3 meses
+            "genero":        p["genero"],
+            "matrimonio_id": p["matrimonio_id"],
+            "ausencias":     p["ausencias"],
+            "activo":        p["activo"],
         })
     return result
 
@@ -203,9 +181,9 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
         celdas = []
         for si, s in enumerate(semanas):
             partes = s["asignaciones"]["tesoros"]
-            nombre = partes[i]["asignado"] if i < len(partes) else None
+            nombre = partes[i].get("asignado") if i < len(partes) else None
             celdas.append([_mk_slot(si, "tesoros", str(i), "asignado",
-                                    nombre, personal_map, "Trigo")])
+                                    nombre, personal_map, f"Diamante_{i + 1}")])
         add("tesoros", "💎", i + 1, f"Diamante {i + 1}", celdas)
 
     # ── Maestros ──────────────────────────────────────────────────────────────
@@ -388,23 +366,30 @@ def catalogo():
 
 @app.route("/editar")
 def editar():
+    mes_pedido = request.args.get("mes", "").strip() or None
     desde_borrador = False
+    programa = None
 
     if BORRADOR_JSON.exists():
         try:
-            programa = json.loads(BORRADOR_JSON.read_text(encoding="utf-8"))
-            _estado["programa"] = programa
-            desde_borrador = True
-            print("\n[Web /editar] Borrador cargado desde borrador_programa.json")
+            borrador = json.loads(BORRADOR_JSON.read_text(encoding="utf-8"))
+            if mes_pedido is None or borrador.get("mes") == mes_pedido:
+                programa = borrador
+                desde_borrador = True
+                print("\n[Web /editar] Borrador cargado desde borrador_programa.json")
         except Exception as exc:
             print(f"[WARN] No se pudo leer el borrador: {exc}. Generando desde cero.")
             BORRADOR_JSON.unlink(missing_ok=True)
 
     if not desde_borrador:
         print("\n[Web /editar] Generando propuesta con el assignator...")
-        programa = engine.generar_programa(guardar_carga=False)
-        _estado["programa"] = programa
+        try:
+            programa = engine.generar_programa(mes_pedido)
+        except Exception as exc:
+            programa = {"mes": mes_pedido or engine.mes_por_defecto(), "semanas": [],
+                        "avisos": [f"Error al generar el programa: {exc}"]}
 
+    _estado["programa"] = programa
     personal = _cargar_personal_con_fotos()
     tabla    = _construir_tabla_editable(programa, personal)
     personal_json = json.dumps(
@@ -416,6 +401,9 @@ def editar():
         tabla=tabla,
         personal_json=personal_json,
         desde_borrador=desde_borrador,
+        mes=programa.get("mes") or engine.mes_por_defecto(),
+        avisos=programa.get("avisos", []),
+        historial_guardado=bool(programa.get("historial_guardado")),
     )
 
 
@@ -434,7 +422,13 @@ def guardar():
     _estado["programa"] = programa_final
 
     try:
-        png = renderer.renderizar(programa_final, actualizar_carga=True)
+        png = renderer.renderizar(programa_final)
+        # Registrar las asignaciones finales en el historial (reemplaza las de
+        # esas mismas semanas si el mes se vuelve a generar)
+        db.respaldar()
+        n = db.guardar_historial(engine.filas_historial(programa_final))
+        programa_final["historial_guardado"] = True
+        print(f"[OK] {n} asignación(es) guardadas en el historial ({db.DB_FILE.name})")
         # Auto-guardar borrador para que la última versión generada quede disponible
         BORRADOR_JSON.write_text(
             json.dumps(programa_final, ensure_ascii=False, indent=2),
@@ -490,86 +484,29 @@ def imagen():
 # API de gestión de personal
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _asignar_matrimonio(df: pd.DataFrame, nombre_a: str, conyuge_nombre: str) -> None:
-    """
-    Vincula o desvincula a nombre_a con conyuge_nombre en la columna Matrimonio_ID.
-
-    Casos:
-      · conyuge_nombre vacío  → elimina el ID de A (desvincula).
-      · B ya tiene ID         → asigna ese mismo ID a A.
-      · Ninguno tiene ID      → genera nuevo ID único y lo asigna a ambos.
-
-    Modifica el DataFrame en el lugar; no guarda a disco.
-    """
-    mask_a = df["Nombre"] == nombre_a
-
-    if not conyuge_nombre:
-        # Desvincular: limpiar también al otro cónyuge para no dejar IDs huérfanos
-        id_actual_raw = df.loc[mask_a, "Matrimonio_ID"].iloc[0]
-        if pd.notna(id_actual_raw):
-            mask_mismo_id = df["Matrimonio_ID"] == int(id_actual_raw)
-            df.loc[mask_mismo_id, "Matrimonio_ID"] = pd.NA
-        else:
-            df.loc[mask_a, "Matrimonio_ID"] = pd.NA
-        return
-
-    mask_b = df["Nombre"] == conyuge_nombre
-    if not mask_b.any():
-        return
-
-    id_b_raw = df.loc[mask_b, "Matrimonio_ID"].iloc[0]
-    if pd.notna(id_b_raw):
-        # Caso 1: B ya tiene ID → A adopta ese mismo ID
-        df.loc[mask_a, "Matrimonio_ID"] = int(id_b_raw)
-    else:
-        # Caso 2: ninguno tiene ID → generar uno nuevo para ambos
-        ids_existentes = df["Matrimonio_ID"].dropna().astype(int).tolist()
-        nuevo_id = max(ids_existentes, default=0) + 1
-        df.loc[mask_a, "Matrimonio_ID"] = nuevo_id
-        df.loc[mask_b, "Matrimonio_ID"] = nuevo_id
-
-
 @app.route("/api/personal/actualizar", methods=["POST"])
 def api_actualizar():
-    """Actualiza Roles, Género y cónyuge de una persona existente."""
+    """Actualiza Roles, Género, Ausencias y cónyuge de una persona existente."""
     try:
         data   = request.get_json(force=True)
         nombre = data.get("nombre", "").strip()
         if not nombre:
             return jsonify({"ok": False, "error": "Nombre requerido"}), 400
 
-        df   = pd.read_excel(engine.PERSONAL_FILE, sheet_name="Personal")
-        mask = df["Nombre"] == nombre
-        if not mask.any():
+        roles_validos = [r for r in data.get("roles", []) if r in ROLES_OFICIALES]
+        if not db.actualizar_persona(nombre, data.get("genero", "H"), roles_validos,
+                                     data.get("ausencias", "")):
             return jsonify({"ok": False, "error": f"'{nombre}' no encontrado"}), 404
 
-        roles_validos = [r for r in data.get("roles", []) if r in ROLES_OFICIALES]
-        aus_raw  = data.get("ausencias", "")
-        ausencias = ", ".join(f.strip() for f in aus_raw.split(",") if f.strip())
-
-        df.loc[mask, "Genero"]    = data.get("genero", "H")
-        df.loc[mask, "Roles"]     = ", ".join(roles_validos)
-        if "Ausencias" not in df.columns:
-            df["Ausencias"] = ""
-        df["Ausencias"] = df["Ausencias"].fillna("").astype(str).replace("nan", "")
-        df.loc[mask, "Ausencias"] = ausencias
-
-        conyuge = data.get("conyuge", "").strip()
-        _asignar_matrimonio(df, nombre, conyuge)
-
-        with pd.ExcelWriter(engine.PERSONAL_FILE, engine="openpyxl") as w:
-            df.to_excel(w, index=False, sheet_name="Personal")
+        db.asignar_matrimonio(nombre, data.get("conyuge", "").strip())
         return jsonify({"ok": True})
-    except PermissionError:
-        return jsonify({"ok": False,
-                        "error": "Archivo en uso. Cierra Excel e intenta de nuevo."}), 500
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/personal/nuevo", methods=["POST"])
 def api_nuevo():
-    """Agrega una nueva persona a Personal.xlsx, guardando la foto si viene."""
+    """Agrega una nueva persona a la base de datos, guardando la foto si viene."""
     import base64 as _b64
     try:
         data   = request.get_json(force=True)
@@ -577,8 +514,7 @@ def api_nuevo():
         if not nombre:
             return jsonify({"ok": False, "error": "Nombre requerido"}), 400
 
-        df = pd.read_excel(engine.PERSONAL_FILE, sheet_name="Personal")
-        if (df["Nombre"] == nombre).any():
+        if db.existe_persona(nombre):
             return jsonify({"ok": False, "error": f"'{nombre}' ya existe en el catálogo"}), 409
 
         # Guardar foto si viene como data URI base64
@@ -594,64 +530,36 @@ def api_nuevo():
             foto_path = foto_nombre
 
         roles_validos = [r for r in data.get("roles", []) if r in ROLES_OFICIALES]
-        aus_raw   = data.get("ausencias", "")
-        ausencias = ", ".join(f.strip() for f in aus_raw.split(",") if f.strip())
-        nueva = {
-            "Nombre":          nombre,
-            "Genero":          data.get("genero", "H"),
-            "Roles":           ", ".join(roles_validos),
-            "Matrimonio_ID":   pd.NA,
-            "Foto_Path":       foto_path,
-            "Carga_Acumulada": 0,
-            "Ausencias":       ausencias,
-        }
-        if "Ausencias" not in df.columns:
-            df["Ausencias"] = ""
-        df["Ausencias"] = df["Ausencias"].fillna("").astype(str).replace("nan", "")
-        df = pd.concat([df, pd.DataFrame([nueva])], ignore_index=True)
+        db.crear_persona(
+            nombre,
+            genero    = data.get("genero", "H"),
+            roles     = roles_validos,
+            foto_path = foto_path,
+            ausencias = data.get("ausencias", ""),
+        )
 
-        # Vincular cónyuge si se indicó (la persona ya debe existir en el df ampliado)
+        # Vincular cónyuge si se indicó
         conyuge = data.get("conyuge", "").strip()
         if conyuge:
-            _asignar_matrimonio(df, nombre, conyuge)
-
-        with pd.ExcelWriter(engine.PERSONAL_FILE, engine="openpyxl") as w:
-            df.to_excel(w, index=False, sheet_name="Personal")
+            db.asignar_matrimonio(nombre, conyuge)
         return jsonify({"ok": True})
-    except PermissionError:
-        return jsonify({"ok": False,
-                        "error": "Archivo en uso. Cierra Excel e intenta de nuevo."}), 500
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/personal/toggle_activo", methods=["POST"])
 def api_toggle_activo():
-    """Cambia el estado Activo de una persona entre 'Sí' y 'No' en el Excel."""
+    """Cambia el estado Activo de una persona."""
     try:
         data   = request.get_json(force=True)
         nombre = data.get("nombre", "").strip()
         if not nombre:
             return jsonify({"ok": False, "error": "Nombre requerido"}), 400
 
-        df = pd.read_excel(engine.PERSONAL_FILE, sheet_name="Personal")
-        mask = df["Nombre"] == nombre
-        if not mask.any():
+        nuevo = db.alternar_activo(nombre)
+        if nuevo is None:
             return jsonify({"ok": False, "error": f"'{nombre}' no encontrado"}), 404
-
-        if "Activo" not in df.columns:
-            df["Activo"] = "Sí"
-
-        actual = str(df.loc[mask, "Activo"].iloc[0]).strip().lower()
-        nuevo  = "No" if actual not in ("no", "false", "0") else "Sí"
-        df.loc[mask, "Activo"] = nuevo
-
-        with pd.ExcelWriter(engine.PERSONAL_FILE, engine="openpyxl") as w:
-            df.to_excel(w, index=False, sheet_name="Personal")
-        return jsonify({"ok": True, "activo": nuevo == "Sí"})
-    except PermissionError:
-        return jsonify({"ok": False,
-                        "error": "Archivo en uso. Cierra Excel e intenta de nuevo."}), 500
+        return jsonify({"ok": True, "activo": nuevo})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 

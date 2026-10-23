@@ -4,12 +4,15 @@ Personal_nuevo.xlsx
 fotos/
 backups/
 input_html/
+programa.db
+programa.db-journal
 
 # ── Archivos temporales / salidas generadas ───────────────────────────────────
 temp.html
 borrador_programa.json
 programa_mes.json
 Programa_Mes.png
+cache_guias/
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/

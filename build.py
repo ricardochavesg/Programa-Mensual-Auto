@@ -10,8 +10,9 @@ Requisitos:
 
 Resultado:
     dist/Programa_Reuniones.exe   ← ejecutable portátil
-    dist/Personal_nuevo.xlsx      ← plantilla vacía lista para el usuario
-    dist/input_html/              ← carpeta para los HTML de JW.org
+    dist/Personal_nuevo.xlsx      ← (opcional) se migra a programa.db en el primer arranque
+    dist/input_html/              ← HTML manuales de JW.org (opcional: la guía se descarga sola)
+    dist/cache_guias/             ← copias de las guías descargadas
     dist/fotos/                   ← carpeta para las fotos del personal
     dist/backups/                 ← carpeta para copias de seguridad automáticas
     dist/config.json              ← configuración del día de reunión
@@ -79,6 +80,7 @@ def compilar() -> None:
         "--hidden-import=bs4",
         "--hidden-import=lxml",
         "--hidden-import=lxml.etree",
+        "--hidden-import=sqlite3",
         "--hidden-import=pkg_resources.py2_compat",
         # Suprimir advertencias de análisis de módulos innecesarios
         "--noconfirm",
@@ -100,7 +102,7 @@ def preparar_dist() -> None:
     print("[3/3] Preparando directorio de distribución...")
 
     # Crear carpetas externas junto al .exe
-    for carpeta in ("fotos", "input_html", "backups"):
+    for carpeta in ("fotos", "input_html", "backups", "cache_guias"):
         (DIST / carpeta).mkdir(parents=True, exist_ok=True)
         print(f"      Carpeta creada: dist/{carpeta}/")
 
@@ -109,12 +111,13 @@ def preparar_dist() -> None:
     cfg_dest = DIST / "config.json"
     if not cfg_dest.exists():
         cfg_dest.write_text(
-            json.dumps({"dia_reunion": "Miércoles"}, ensure_ascii=False, indent=2),
+            json.dumps({"dia_reunion": "Miércoles", "dia_fds": "Domingo"},
+                       ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         print("      Archivo creado: dist/config.json")
 
-    # Copiar Personal_nuevo.xlsx si existe (como plantilla de referencia)
+    # Copiar Personal_nuevo.xlsx si existe (se migra a programa.db al arrancar)
     personal_src = HERE / "Personal_nuevo.xlsx"
     personal_dst = DIST / "Personal_nuevo.xlsx"
     if personal_src.exists() and not personal_dst.exists():

@@ -14,6 +14,12 @@ and exports a print-ready image — all from a clean visual interface.
 - **Draft Saving** — save progress locally without generating the final output
 - **Image Export** — renders the final schedule as a 1400px PNG ready for distribution
 - **Session Heartbeat** — keeps the server session alive while the tab is open
+- **Automatic Guide Download** — pick a month and the weekly meeting guide is fetched
+  from wol.jw.org (cached in `cache_guias/`; files in `input_html/` still take priority)
+- **Monthly History (SQLite)** — every final schedule is saved per week/month in
+  `programa.db`, so the next month avoids repeating the same people and roles
+- **Split Workloads** — midweek and weekend meetings have separate load counters;
+  weekend logistics may repeat people who already have a midweek part
 
 ---
 
@@ -50,5 +56,6 @@ Clean white background, gradient headers, circular avatars.
 3. Go to **Catalog** and add your staff directly from the form
 4. Open **Editor**, build the weekly schedule, and export your PNG
 
-> All data (staff info, photos) is managed automatically.
-> The `.xlsx` file and `/fotos` folder are written by the app — no manual editing needed.
+> All data (staff info, history, photos) is managed automatically in `programa.db`
+> and `/fotos`. An existing `Personal_nuevo.xlsx` is imported on first launch.
+> `python setup_db.py --exportar respaldo.xlsx` exports the staff catalog to Excel.
