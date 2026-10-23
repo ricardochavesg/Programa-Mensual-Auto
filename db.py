@@ -386,3 +386,103 @@ def carga_reciente(meses: int = 3) -> dict[str, int]:
             (desde,),
         ).fetchall()
     return {r["nombre"]: r["n"] for r in rows}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Estadísticas
+# ─────────────────────────────────────────────────────────────────────────────
+
+# (clave, etiqueta, grupo, roles del historial que cuentan en la columna)
+# Grupos: "parte_es" y "parte_fds" son partes del programa; "log" es logística
+# (se separa en ES/FDS según la reunión de cada fila del historial).
+# Una columna aplica a una persona si tiene ALGUNO de sus roles.
+TIPOS_ESTADISTICA: list[tuple[str, str, str, frozenset]] = [
+    ("presidente",  "Presidente",       "parte_es",  frozenset({"Presidente_ES"})),
+    ("diamantes",   "Diamantes",        "parte_es",  frozenset({"Diamante_1", "Diamante_2", "Diamante_3"})),
+    ("trigo",       "Maestros (titular)", "parte_es", frozenset({"Trigo"})),
+    ("ayudante",    "Ayudante",         "parte_es",  frozenset({"Ayudante"})),
+    ("discurso",    "Discurso",         "parte_es",  frozenset({"Discurso_H"})),
+    ("oveja",       "Vida Cristiana",   "parte_es",  frozenset({"Oveja"})),
+    ("libro",       "Estudio del libro", "parte_es", frozenset({"Libro"})),
+    ("lector",      "Lector del libro", "parte_es",  frozenset({"Lector_Libro"})),
+    ("presidente_fds", "Presidente FDS", "parte_fds", frozenset({"Presidente_FDS"})),
+    ("camara",      "Cámara",           "log",       frozenset({"Camara"})),
+    ("zoom",        "Zoom",             "log",       frozenset({"Zoom"})),
+    ("acomodador",  "Acomodador",       "log",       frozenset({"Acomodador"})),
+]
+
+
+def meses_con_historial() -> list[str]:
+    """Meses ('YYYY-MM') que tienen historial, de más antiguo a más reciente."""
+    with conectar() as con:
+        return [r["mes"] for r in con.execute(
+            "SELECT DISTINCT mes FROM historial ORDER BY mes").fetchall()]
+
+
+def estadisticas(desde: Optional[str] = None, hasta: Optional[str] = None) -> dict:
+    """
+    Partes por persona y tipo en el periodo [desde, hasta] (meses 'YYYY-MM').
+    Sin parámetros: los últimos 3 meses con historial.
+    En `aplica[clave]`: False = el tipo no le corresponde (se muestra "—"),
+    distinto de un 0 real ("le corresponde pero no tuvo").
+    """
+    meses = meses_con_historial()
+    if not desde and not hasta:
+        desde = meses[-3] if len(meses) >= 3 else (meses[0] if meses else None)
+    en_rango = [m for m in meses if (not desde or m >= desde) and (not hasta or m <= hasta)]
+    rol_a_tipo = {r: clave for clave, _, _, roles in TIPOS_ESTADISTICA for r in roles}
+    grupo_de = {clave: grupo for clave, _, grupo, _ in TIPOS_ESTADISTICA}
+
+    sql, args = "SELECT nombre, fecha, reunion, rol FROM historial WHERE 1=1", []
+    if desde:
+        sql += " AND mes >= ?"
+        args.append(desde)
+    if hasta:
+        sql += " AND mes <= ?"
+        args.append(hasta)
+    with conectar() as con:
+        filas = con.execute(sql, args).fetchall()
+
+    datos: dict[str, dict] = {}
+    for f in filas:
+        d = datos.setdefault(f["nombre"], {"conteo": {}, "es": 0, "fds": 0,
+                                           "log_es": 0, "log_fds": 0, "ultima": ""})
+        d["ultima"] = max(d["ultima"], f["fecha"])
+        clave = rol_a_tipo.get(f["rol"])
+        if clave is None:
+            continue
+        d["conteo"][clave] = d["conteo"].get(clave, 0) + 1
+        grupo = grupo_de[clave]
+        if grupo == "log":
+            d["log_es" if f["reunion"] == ES else "log_fds"] += 1
+        else:
+            d["es" if grupo == "parte_es" else "fds"] += 1
+
+    personas_db = {p["nombre"]: p for p in listar_personas()}
+    resultado: list[dict] = []
+    for nombre in sorted(set(datos) | {n for n, p in personas_db.items() if p["activo"]}):
+        p = personas_db.get(nombre)
+        d = datos.get(nombre, {"conteo": {}, "es": 0, "fds": 0, "log_es": 0, "log_fds": 0, "ultima": ""})
+        roles = set(p["roles"]) if p else None
+        aplica = {clave: (roles is None or bool(roles & rs) or d["conteo"].get(clave, 0) > 0)
+                  for clave, _, _, rs in TIPOS_ESTADISTICA}
+        resultado.append({
+            "nombre": nombre,
+            "genero": p["genero"] if p else "",
+            "activo": p["activo"] if p else True,
+            "existe": p is not None,
+            "aplica": aplica,
+            "conteo": {clave: d["conteo"].get(clave, 0) for clave, *_ in TIPOS_ESTADISTICA},
+            "partes_es": d["es"], "partes_fds": d["fds"],
+            "log_es": d["log_es"], "log_fds": d["log_fds"],
+            "total": d["es"] + d["fds"] + d["log_es"] + d["log_fds"],
+            "ultima": d["ultima"],
+        })
+    maximos = {clave: max((r["conteo"][clave] for r in resultado if r["aplica"][clave]), default=0)
+               for clave, *_ in TIPOS_ESTADISTICA}
+    return {
+        "desde": desde or "", "hasta": hasta or "",
+        "meses": meses, "meses_en_rango": en_rango,
+        "tipos": [{"clave": c, "etiqueta": e, "grupo": g} for c, e, g, _ in TIPOS_ESTADISTICA],
+        "personas": resultado, "maximos": maximos,
+    }

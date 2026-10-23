@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Estadísticas{% endblock %}
+
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-black tracking-wide text-slate-800">Estadísticas de Participación</h1>
+  <p class="text-slate-500 text-sm mt-1">
+    Partes y logística por persona
+    {% if d.meses_en_rango %}· {{ d.meses_en_rango[0] }} a {{ d.meses_en_rango[-1] }}
+      ({{ d.meses_en_rango|length }} {{ 'mes' if d.meses_en_rango|length == 1 else 'meses' }}){% endif %}
+  </p>
+</div>
+
+{% if not d.meses %}
+<div class="bg-white rounded-2xl shadow-sm p-10 text-center text-slate-500">
+  Aún no hay historial: se guarda al generar la imagen final.
+</div>
+{% else %}
+
+<!-- Periodo -->
+<form method="get" class="flex flex-wrap items-end gap-3 mb-4 bg-white rounded-2xl shadow-sm p-4">
+  <label class="text-xs font-semibold text-slate-500">Desde
+    <input type="month" name="desde" value="{{ d.desde }}" min="{{ d.meses[0] }}" max="{{ d.meses[-1] }}"
+           class="block mt-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800">
+  </label>
+  <label class="text-xs font-semibold text-slate-500">Hasta
+    <input type="month" name="hasta" value="{{ d.hasta }}" min="{{ d.meses[0] }}" max="{{ d.meses[-1] }}"
+           class="block mt-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800">
+  </label>
+  <button class="px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 transition">
+    Aplicar
+  </button>
+  <div class="flex flex-wrap gap-2 ml-auto">
+    {% for etq, desde in presets %}
+    <a href="/estadisticas?desde={{ desde }}"
+       class="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-300 text-slate-600 hover:bg-slate-50">{{ etq }}</a>
+    {% endfor %}
+  </div>
+</form>
+
+<!-- Filtros -->
+<div class="flex flex-wrap items-center gap-2 mb-4">
+  <button data-g="todos" onclick="filtrarGenero('todos')"
+          class="filtro-btn px-4 py-2 rounded-xl text-sm font-semibold transition bg-slate-800 text-white shadow-sm">Todos</button>
+  <button data-g="H" onclick="filtrarGenero('H')"
+          class="filtro-btn px-4 py-2 rounded-xl text-sm font-semibold transition border border-blue-200 text-blue-700 hover:bg-blue-50">Hermanos</button>
+  <button data-g="M" onclick="filtrarGenero('M')"
+          class="filtro-btn px-4 py-2 rounded-xl text-sm font-semibold transition border border-pink-200 text-pink-600 hover:bg-pink-50">Hermanas</button>
+  <input id="buscar" type="search" placeholder="Buscar nombre…" oninput="aplicarFiltros()"
+         class="ml-auto border border-slate-300 rounded-xl px-3 py-2 text-sm w-56">
+</div>
+
+<!-- Leyenda -->
+<div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-500 mb-3">
+  <span><b class="text-slate-400">—</b> no aplica (la persona no tiene ese rol)</span>
+  <span><span class="inline-block px-1.5 rounded bg-amber-100 text-amber-800 font-semibold">0</span> aplica pero no tuvo (posible omisión)</span>
+  <span><span class="inline-block px-1.5 rounded bg-emerald-100 text-emerald-800 font-semibold">N</span> el que más tuvo en esa columna</span>
+  <span>Haz clic en un encabezado para ordenar.</span>
+</div>
+
+<div class="bg-white rounded-2xl shadow-sm overflow-x-auto">
+  <table id="tabla" class="min-w-full text-sm">
+    <thead class="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
+      <tr>
+        <th data-tipo="texto" class="px-3 py-3 text-left cursor-pointer select-none sticky left-0 bg-slate-50">Persona</th>
+        <th data-tipo="num" class="px-3 py-3 cursor-pointer select-none border-l border-slate-200">Partes ES</th>
+        <th data-tipo="num" class="px-3 py-3 cursor-pointer select-none">Partes FDS</th>
+        <th data-tipo="num" class="px-3 py-3 cursor-pointer select-none">Logíst. ES</th>
+        <th data-tipo="num" class="px-3 py-3 cursor-pointer select-none">Logíst. FDS</th>
+        <th data-tipo="num" class="px-3 py-3 cursor-pointer select-none">Total</th>
+        {% for t in d.tipos %}
+        <th data-tipo="num" class="px-3 py-3 cursor-pointer select-none whitespace-nowrap
+            {% if loop.first or t.grupo != d.tipos[loop.index0 - 1].grupo %}border-l border-slate-200{% endif %}
+            {% if t.grupo == 'log' %}text-slate-500{% endif %}">{{ t.etiqueta }}</th>
+        {% endfor %}
+        <th data-tipo="texto" class="px-3 py-3 cursor-pointer select-none border-l border-slate-200">Última vez</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in d.personas %}
+      <tr class="fila border-t border-slate-100 hover:bg-slate-50 {% if not p.activo %}opacity-60{% endif %}"
+          data-genero="{{ p.genero }}" data-nombre="{{ p.nombre|lower }}">
+        <td class="px-3 py-2 font-semibold whitespace-nowrap sticky left-0 bg-white"
+            data-valor="{{ p.nombre|lower }}">
+          <span class="{% if p.genero == 'M' %}text-pink-700{% elif p.genero == 'H' %}text-blue-800{% endif %}">{{ p.nombre }}</span>
+          {% if not p.activo %}<span class="ml-1 text-[10px] font-semibold uppercase text-slate-500 bg-slate-200 rounded px-1.5 py-0.5">inactivo</span>{% endif %}
+          {% if not p.existe %}<span class="ml-1 text-[10px] font-semibold uppercase text-slate-500 bg-slate-200 rounded px-1.5 py-0.5">ya no está</span>{% endif %}
+        </td>
+        {% for v in (p.partes_es, p.partes_fds, p.log_es, p.log_fds, p.total) %}
+        <td class="px-3 py-2 text-center tabular-nums {% if loop.first %}border-l border-slate-100{% endif %} {% if loop.last %}font-bold{% endif %}"
+            data-valor="{{ v }}">{{ v }}</td>
+        {% endfor %}
+        {% for t in d.tipos %}
+          {% set n = p.conteo[t.clave] %}
+          {% if not p.aplica[t.clave] %}
+          <td class="px-3 py-2 text-center text-slate-300" data-valor="-1">—</td>
+          {% else %}
+          <td class="px-3 py-2 text-center tabular-nums
+              {% if n == 0 and p.activo %}bg-amber-100 text-amber-800 font-semibold
+              {% elif n > 0 and n == d.maximos[t.clave] %}bg-emerald-100 text-emerald-800 font-semibold{% endif %}"
+              data-valor="{{ n }}">{{ n }}</td>
+          {% endif %}
+        {% endfor %}
+        <td class="px-3 py-2 text-center whitespace-nowrap text-slate-500 border-l border-slate-100"
+            data-valor="{{ p.ultima }}">{{ p.ultima or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p id="vacio" class="hidden text-center text-slate-500 text-sm mt-6">Nadie coincide con el filtro.</p>
+
+<script>
+let generoActivo = 'todos';
+
+function filtrarGenero(g) {
+  generoActivo = g;
+  document.querySelectorAll('.filtro-btn').forEach(b => {
+    b.classList.toggle('ring-2', b.dataset.g === g);
+    b.classList.toggle('ring-slate-400', b.dataset.g === g);
+  });
+  aplicarFiltros();
+}
+
+function aplicarFiltros() {
+  const q = document.getElementById('buscar').value.trim().toLowerCase();
+  let visibles = 0;
+  document.querySelectorAll('#tabla tbody .fila').forEach(tr => {
+    const ok = (generoActivo === 'todos' || tr.dataset.genero === generoActivo)
+            && tr.dataset.nombre.includes(q);
+    tr.classList.toggle('hidden', !ok);
+    if (ok) visibles++;
+  });
+  document.getElementById('vacio').classList.toggle('hidden', visibles > 0);
+}
+
+// Ordenar por columna (clic en el encabezado; segundo clic invierte)
+document.querySelectorAll('#tabla thead th').forEach((th, i) => {
+  let asc = true;
+  th.addEventListener('click', () => {
+    const tbody = document.querySelector('#tabla tbody');
+    const filas = [...tbody.querySelectorAll('tr')];
+    const num = th.dataset.tipo === 'num';
+    const val = tr => tr.children[i].dataset.valor;
+    filas.sort((a, b) => {
+      const r = num ? parseFloat(val(a)) - parseFloat(val(b)) : val(a).localeCompare(val(b), 'es');
+      return asc ? r : -r;
+    });
+    asc = !asc;
+    filas.forEach(tr => tbody.appendChild(tr));
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

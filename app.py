@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -334,6 +335,24 @@ def catalogo():
     personal = _cargar_personal_con_fotos()
     return render_template("catalogo.html", personal=personal,
                            roles_oficiales=ROLES_OFICIALES)
+
+
+@app.route("/estadisticas")
+def estadisticas():
+    meses = db.meses_con_historial()
+    desde = request.args.get("desde", "").strip()
+    hasta = request.args.get("hasta", "").strip()
+    formato = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+    if (desde and not formato.fullmatch(desde)) or (hasta and not formato.fullmatch(hasta)):
+        desde = hasta = ""
+    if desde and hasta and desde > hasta:
+        desde, hasta = hasta, desde
+    datos = db.estadisticas(desde or None, hasta or None)
+    presets = [(etq, meses[-n] if len(meses) >= n else (meses[0] if meses else ""))
+               for etq, n in (("Último mes", 1), ("Últimos 3 meses", 3), ("Últimos 6 meses", 6))]
+    presets.append(("Todo", meses[0] if meses else ""))
+    return render_template("estadisticas.html", d=datos, presets=presets,
+                           ultimo_mes=meses[-1] if meses else "")
 
 
 @app.route("/editar")

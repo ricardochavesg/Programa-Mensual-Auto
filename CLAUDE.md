@@ -46,16 +46,16 @@ app.py /guardar (botón "Generar Imagen Final")
 |---|---|
 | `main.py` | Entrada. Prepara carpetas, `config.json`, `programa.db` (migra `Personal_nuevo.xlsx` si existe) y abre la ventana. |
 | `ventana.py` | Ventana tkinter en la barra de tareas. Redirige `print` al log de la ventana (el `.exe` es `--windowed`, sin consola). El servidor vive mientras la ventana esté abierta (no hay heartbeat/auto-apagado). |
-| `app.py` | Flask: `/editar`, `/catalogo`, `/guardar`, `/imagen`, `/api/programa/*`, `/api/personal/*`, `/api/disponibilidad?anio=&mes=`, `/api/config`. Construye la tabla editable (`field_id = "{semana}|{seccion}|{clave}|{campo}"`). |
+| `app.py` | Flask: `/editar`, `/catalogo`, `/estadisticas?desde=&hasta=`, `/guardar`, `/imagen`, `/api/programa/*`, `/api/personal/*`, `/api/disponibilidad?anio=&mes=`, `/api/config`. Construye la tabla editable (`field_id = "{semana}|{seccion}|{clave}|{campo}"`). |
 | `assignator.py` | Motor de asignación (ver reglas abajo) y `filas_historial()`. |
 | `guia.py` | Calcula las semanas del mes, descarga/cachea la guía (wol.jw.org y, si no está, el cuadernillo bimestral de jw.org) y la disponibilidad por mes. |
 | `parser.py` | Parseo del HTML de JW.org (autómata h2 = sección / h3 numerado = parte). También lee `input_html/`. |
-| `db.py` | SQLite (`programa.db`): tablas `personas` e `historial`; normalización de roles; importar/exportar Excel; respaldos. |
+| `db.py` | SQLite (`programa.db`): tablas `personas` e `historial`; `estadisticas()` (partes por persona y tipo según `TIPOS_ESTADISTICA`; "no aplica" ≠ 0); normalización de roles; importar/exportar Excel; respaldos. |
 | `renderer.py` | Normaliza el programa a filas y genera `Programa_Mes.png` con html2image + recorte PIL. |
 | `config.py` | `config.json` (día de reunión, día FDS, `mostrar_limpieza`) y `PALETA_BANNER`. |
 | `audit.py` | Auditoría por consola de reglas de negocio. |
 | `paths.py` | `internal_path` (dentro del .exe: código, templates) vs `external_path` (junto al .exe: datos). |
-| `templates/` | `editar.html` (editor, Tailwind por CDN + JS vanilla), `catalogo.html`, `base.html`, `programa.html` (plantilla de impresión, CSS propio). |
+| `templates/` | `editar.html` (editor, Tailwind por CDN + JS vanilla), `catalogo.html`, `estadisticas.html` (tabla ordenable de partes por persona), `base.html`, `programa.html` (plantilla de impresión, CSS propio). |
 | `tests/` | `conftest.py` aísla rutas en `tmp_path` y simula la red; `test_sistema.py` cubre todo el sistema. |
 
 ## Datos (todos externos, junto al .exe; en `.gitignore`)

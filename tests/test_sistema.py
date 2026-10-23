@@ -362,3 +362,78 @@ def test_plantilla_de_impresion(entorno):
 
     ctx = renderer._normalizar(prog, {}, mostrar_limpieza=False)
     assert not any(f["es_limpieza"] for f in ctx["filas"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Estadísticas
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fila(mes, semana, reunion, rol, nombre, seccion="maestros"):
+    return {"semana": semana, "fecha": semana, "mes": mes, "reunion": reunion,
+            "seccion": seccion, "rol": rol, "nombre": nombre}
+
+
+def _historial_conocido():
+    db.guardar_historial([
+        _fila("2026-09", "2026-09-07", "ES", "Discurso_H", "Anciano 01"),
+        _fila("2026-10", "2026-10-05", "ES", "Discurso_H", "Anciano 01"),
+        _fila("2026-10", "2026-10-05", "ES", "Presidente_ES", "Anciano 02", "entre_semana"),
+        _fila("2026-10", "2026-10-05", "ES", "Trigo", "Hermana 01"),
+        _fila("2026-10", "2026-10-05", "ES", "Ayudante", "Hermana 02"),
+        _fila("2026-10", "2026-10-05", "ES", "Camara", "Hermano 01", "entre_semana"),
+        _fila("2026-10", "2026-10-10", "FDS", "Camara", "Hermano 01", "fin_de_semana"),
+        _fila("2026-10", "2026-10-10", "FDS", "Presidente_FDS", "Anciano 02", "fin_de_semana"),
+        _fila("2026-10", "2026-10-05", "ES", "Trigo", "Fantasma"),
+    ])
+
+
+def test_estadisticas_aplica_y_conteos(entorno):
+    sembrar_personal()
+    _historial_conocido()
+    e = db.estadisticas("2026-09", "2026-10")
+    por = {p["nombre"]: p for p in e["personas"]}
+    # Una hermana no tiene Discurso/Presidente/Diamantes: "no aplica", no 0
+    m = por["Hermana 01"]
+    for clave in ("discurso", "presidente", "diamantes", "camara"):
+        assert m["aplica"][clave] is False
+    assert m["aplica"]["trigo"] and m["conteo"]["trigo"] == 1 and m["partes_es"] == 1
+    # Aplica pero sin partes: 0 real
+    assert por["Hermana 03"]["aplica"]["trigo"] and por["Hermana 03"]["conteo"]["trigo"] == 0
+    # Conteos y separación ES/FDS
+    assert por["Anciano 01"]["conteo"]["discurso"] == 2
+    assert por["Anciano 02"]["partes_es"] == 1 and por["Anciano 02"]["partes_fds"] == 1
+    h = por["Hermano 01"]
+    assert (h["log_es"], h["log_fds"], h["partes_es"], h["total"]) == (1, 1, 0, 2)
+    assert h["ultima"] == "2026-10-10"
+    # Nombre que ya no existe: todo aplica
+    assert por["Fantasma"]["existe"] is False and all(por["Fantasma"]["aplica"].values())
+
+
+def test_estadisticas_periodo_e_inactivos(entorno):
+    sembrar_personal()
+    _historial_conocido()
+    e = db.estadisticas("2026-10", "2026-10")
+    por = {p["nombre"]: p for p in e["personas"]}
+    assert por["Anciano 01"]["conteo"]["discurso"] == 1
+    assert e["meses_en_rango"] == ["2026-10"]
+    # por defecto: últimos 3 meses con historial (aquí solo hay 2)
+    assert db.estadisticas()["desde"] == "2026-09"
+    # inactivo sin asignaciones no aparece; con asignaciones aparece
+    db.alternar_activo("Hermana 05")
+    db.alternar_activo("Hermana 01")
+    nombres = {p["nombre"]: p for p in db.estadisticas("2026-10", "2026-10")["personas"]}
+    assert "Hermana 05" not in nombres
+    assert nombres["Hermana 01"]["activo"] is False
+
+
+def test_pagina_estadisticas(cliente):
+    r = cliente.get("/estadisticas")
+    assert r.status_code == 200
+    assert "Aún no hay historial" in r.get_data(as_text=True)
+    generar_y_guardar("2026-11")
+    r = cliente.get("/estadisticas")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "Hermana 01" in html and "Aún no hay historial" not in html
+    assert cliente.get("/estadisticas?desde=2026-11&hasta=2026-11").status_code == 200
+    assert cliente.get("/estadisticas?desde=basura").status_code == 200
