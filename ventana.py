@@ -126,14 +126,16 @@ def ejecutar(puerto: int, preparar: Callable[[], object]) -> None:
     # ── Servidor ──────────────────────────────────────────────────────────────
     try:
         app = preparar()
-        servidor["srv"] = make_server("127.0.0.1", puerto, app, threaded=True)
-    except OSError:
-        # Puerto ocupado: lo más probable es que el programa ya esté abierto
-        messagebox.showinfo(TITULO, "El programa ya está abierto.\nSe abrirá el editor web.")
-        abrir_editor()
-        root.destroy()
-        return
+        try:
+            servidor["srv"] = make_server("127.0.0.1", puerto, app, threaded=True)
+        except OSError:
+            # Puerto ocupado: lo más probable es que el programa ya esté abierto
+            messagebox.showinfo(TITULO, "El programa ya está abierto.\nSe abrirá el editor web.")
+            abrir_editor()
+            root.destroy()
+            return
     except Exception:
+        # Error al preparar datos (permisos, disco lleno, base dañada…)
         print(traceback.format_exc())
         estado.configure(text="Error al iniciar. Revisa la actividad.", fg="#dc2626")
         messagebox.showerror(TITULO, "No se pudo iniciar el programa.\n"

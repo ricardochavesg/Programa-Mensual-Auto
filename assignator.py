@@ -53,6 +53,13 @@ ES, FDS = db.ES, db.FDS
 # Roles exentos de la regla de descanso semanal (logística de alta rotación)
 ROLES_SIN_DESCANSO: frozenset = frozenset({"Camara", "Zoom", "Acomodador"})
 
+# Roles que se asignan en cada reunión
+ROLES_POR_REUNION: dict[str, frozenset] = {
+    ES:  frozenset({"Presidente_ES", "Diamante_1", "Diamante_2", "Diamante_3", "Trigo",
+                    "Ayudante", "Discurso_H", "Oveja", "Libro", "Camara", "Zoom", "Acomodador"}),
+    FDS: frozenset({"Presidente_FDS", "Camara", "Zoom", "Acomodador"}),
+}
+
 # (clave, rol ES, rol FDS, cantidad)
 LOGISTICA = [
     ("presidente",   "Presidente_ES", "Presidente_FDS", 1),
@@ -123,7 +130,11 @@ class Assignator:
         self.semanas  = sorted(semanas, key=lambda s: s["fecha_reunion"] or date.min)
 
         # ── Estado de semana (reiniciado cada semana) ──
+        # _usados: cualquier asignación (no repetir persona en la misma reunión).
+        # _con_parte: solo partes que cuentan para el descanso (no logística).
+        # _anterior: _con_parte de la semana pasada (regla de descanso).
         self._usados: dict[str, set[str]]    = {ES: set(), FDS: set()}
+        self._con_parte: dict[str, set[str]] = {ES: set(), FDS: set()}
         self._anterior: dict[str, set[str]]  = {ES: set(), FDS: set()}
         self._fecha: dict[str, Optional[date]] = {ES: None, FDS: None}
 
@@ -135,6 +146,18 @@ class Assignator:
             if p.get("tipo") == "Pareja"
         )
         self._limpieza_idx = 0
+
+        # Tamaño del pool de cada rol (personas activas que pueden hacerlo).
+        # Sirve para reservar a quienes cubren roles escasos (ej. Presidente).
+        self._tam_pool: Counter = Counter()
+        for persona in personal:
+            if not persona.activo:
+                continue
+            for r in persona.roles & ROLES_POR_REUNION[ES]:
+                self._tam_pool[(ES, r)] += 1
+            if "Conductor_Atalaya" not in persona.roles:
+                for r in persona.roles & ROLES_POR_REUNION[FDS]:
+                    self._tam_pool[(FDS, r)] += 1
 
         self._aplicar_historial(historial_previo or [], mes_anterior)
 
@@ -164,7 +187,7 @@ class Assignator:
             if f["mes"] == mes_anterior:
                 p.prev[reunion] += 1
                 p.prev_roles.add((reunion, f["rol"]))
-            if f["semana"] == semana_previa:
+            if f["semana"] == semana_previa and f["rol"] not in ROLES_SIN_DESCANSO:
                 self._anterior[reunion].add(p.nombre)
             if fecha > p.ultima.get(reunion, date.min):
                 p.ultima[reunion] = fecha
@@ -188,9 +211,11 @@ class Assignator:
                 "fecha_exacta":  semana.get("fecha_exacta", ""),
                 "asignaciones":  asignaciones,
             })
-            # Lo de esta semana pasa a ser "la semana anterior" (regla de descanso)
-            self._anterior = {ES: set(self._usados[ES]), FDS: set(self._usados[FDS])}
-            self._usados   = {ES: set(), FDS: set()}
+            # Las partes de esta semana pasan a ser "la semana anterior" (descanso).
+            # La logística (Cámara, Zoom, Acomodador) es liviana: no cuenta.
+            self._anterior  = self._con_parte
+            self._usados    = {ES: set(), FDS: set()}
+            self._con_parte = {ES: set(), FDS: set()}
 
         resumen = self._generar_resumen_carga()
         self._imprimir_resumen_carga(resumen)
@@ -405,10 +430,23 @@ class Assignator:
             and not (reunion == FDS and "Conductor_Atalaya" in p.roles)
         ]
 
+    def _escasez_otros_roles(self, p: Persona, rol: str, reunion: str) -> int:
+        """
+        Tamaño del pool más pequeño entre los OTROS roles (no logística) de la
+        persona. Un número bajo = la persona hace falta en un rol escaso, así
+        que conviene no gastarla en roles que muchos pueden cubrir.
+        """
+        return min(
+            (self._tam_pool[(reunion, r)] for r in p.roles & ROLES_POR_REUNION[reunion]
+             if r != rol and r not in ROLES_SIN_DESCANSO),
+            default=10_000,
+        )
+
     def _puntaje(self, p: Persona, rol: str, reunion: str) -> tuple:
         """Menor = mejor candidato."""
         return (
             p.mes[reunion],                          # menos asignaciones este mes
+            -self._escasez_otros_roles(p, rol, reunion),  # reservar a quien cubre roles escasos
             (reunion, rol) in p.prev_roles,          # no repetir el rol del mes anterior
             p.prev[reunion],                         # menos asignaciones el mes anterior
             p.ultima.get(reunion, date.min),         # más tiempo sin participar
@@ -483,6 +521,8 @@ class Assignator:
         """Suma carga del mes y marca como asignado en la reunión en curso."""
         persona.mes[reunion] += 1
         self._usados[reunion].add(persona.nombre)
+        if rol not in ROLES_SIN_DESCANSO:
+            self._con_parte[reunion].add(persona.nombre)
         if self._fecha[reunion]:
             persona.ultima[reunion] = self._fecha[reunion]
 

@@ -15,15 +15,15 @@ import io
 import json
 import sys
 from collections import defaultdict
-from pathlib import Path
 
 import db
+from paths import external_path
 
 # Forzar UTF-8 en stdout para que los emojis y caracteres especiales
 # se muestren correctamente en Windows
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-PROGRAMA_JSON = Path(__file__).parent / "programa_mes.json"
+PROGRAMA_JSON = external_path("programa_mes.json")
 
 # Roles exentos de la regla de descanso
 ROLES_SIN_DESCANSO: frozenset = frozenset({"Camara", "Zoom", "Acomodador"})
@@ -167,7 +167,8 @@ class Auditoria:
 
             # Actualizar estado para siguiente iteración
             # (el motor solo guarda _asignados_semana = entre_semana)
-            personas_es_anterior = {n for n, _ in es if n}
+            # (la logística es liviana: no cuenta para el descanso, igual que el motor)
+            personas_es_anterior = {n for n, r in es if n and r not in ROLES_SIN_DESCANSO}
 
     # ─────────────────────────────────────────────────────────────────────────
     # R1 — Celdas vacías

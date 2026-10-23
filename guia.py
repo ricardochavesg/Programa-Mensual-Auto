@@ -145,8 +145,9 @@ def _extraer_guia(html: str, url_base: str) -> tuple[dict, str]:
         if _secciones_completas(secciones):
             return secciones, doc
 
-    # 3. Último recurso: toda la página
-    return weekly_parser._extraer_secciones_articulo(soup), html
+    # 3. Último recurso: toda la página (como Tag, para no limitarse al primer
+    #    <article>; las secciones que no son de la guía se ignoran solas)
+    return weekly_parser._extraer_secciones_articulo(soup.body or soup), html
 
 
 def _ruta_cache(lunes: date):
@@ -220,9 +221,9 @@ def _desde_jw(lunes: date) -> tuple[dict, str, str]:
             html = _descargar(enlace)
         except (urllib.error.URLError, TimeoutError, OSError):
             continue
-        secciones = weekly_parser._extraer_secciones_articulo(BeautifulSoup(html, "lxml"))
+        secciones, html_util = _extraer_guia(html, enlace)
         if _secciones_completas(secciones):
-            return secciones, html, enlace
+            return secciones, html_util, enlace
     if sin_conexion:
         raise SinConexion("No se pudo conectar con jw.org")
     raise GuiaNoDisponible(f"jw.org aún no tiene la semana {rango_texto(lunes)}")

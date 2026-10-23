@@ -83,7 +83,6 @@ def compilar() -> None:
         "--hidden-import=lxml.etree",
         "--hidden-import=sqlite3",
         "--hidden-import=tkinter",
-        "--hidden-import=pkg_resources.py2_compat",
         # Suprimir advertencias de análisis de módulos innecesarios
         "--noconfirm",
         "--clean",

@@ -127,22 +127,23 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
             "es_limpieza":      es_limpieza,
         })
 
+    # (clave, emoji, etiqueta, rol entre semana, rol fin de semana, cantidad)
     LOGISTICA = [
-        ("presidente",   "🎤", "Presidente", "Presidente", 1),
-        ("camara",       "🎥", "Cámara/PC 💻", "Camara",   2),
-        ("zoom",         "💻", "Zoom",        "Zoom",       1),
-        ("acomodadores", "🪑", "Acomodadores","Acomodador", 2),
+        ("presidente",   "🎤", "Presidente",   "Presidente_ES", "Presidente_FDS", 1),
+        ("camara",       "🎥", "Cámara/PC 💻", "Camara",        "Camara",         2),
+        ("zoom",         "💻", "Zoom",         "Zoom",          "Zoom",           1),
+        ("acomodadores", "🪑", "Acomodadores", "Acomodador",    "Acomodador",     2),
     ]
 
     # ── Entre semana ──────────────────────────────────────────────────────────
-    for key, emo, lbl, rol, n in LOGISTICA:
+    for key, emo, lbl, rol_es, _, n in LOGISTICA:
         celdas = []
         for si, s in enumerate(semanas):
             lst = s["asignaciones"]["entre_semana"].get(key, [None] * n)
             celdas.append([
                 _mk_slot(si, "entre_semana", key, str(i),
                          lst[i] if i < len(lst) else None,
-                         personal_map, rol)
+                         personal_map, rol_es)
                 for i in range(n)
             ])
         add("entre_semana", emo, 0, lbl, celdas)
@@ -219,14 +220,14 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
         add("vida_cristiana", emo, num, lbl, celdas)
 
     # ── Fin de semana ─────────────────────────────────────────────────────────
-    for key, emo, lbl, rol, n in LOGISTICA:
+    for key, emo, lbl, _, rol_fds, n in LOGISTICA:
         celdas = []
         for si, s in enumerate(semanas):
             lst = s["asignaciones"]["fin_de_semana"].get(key, [None] * n)
             celdas.append([
                 _mk_slot(si, "fin_de_semana", key, str(i),
                          lst[i] if i < len(lst) else None,
-                         personal_map, rol)
+                         personal_map, rol_fds)
                 for i in range(n)
             ])
         add("fin_de_semana", emo, 0, lbl, celdas)
@@ -523,7 +524,9 @@ def api_nuevo():
             header, _, encoded = foto_b64.partition(",")
             ext = "jpg" if "jpeg" in header or "jpg" in header else \
                   "webp" if "webp" in header else "png"
-            foto_nombre = f"{nombre}.{ext}"
+            # Nombre de archivo seguro: sin separadores de carpeta ni caracteres inválidos
+            seguro = "".join(c for c in nombre if c not in '\\/:*?"<>|').strip(" .") or "foto"
+            foto_nombre = f"{seguro}.{ext}"
             FOTOS_DIR.mkdir(parents=True, exist_ok=True)
             (FOTOS_DIR / foto_nombre).write_bytes(_b64.b64decode(encoded))
             foto_path = foto_nombre
