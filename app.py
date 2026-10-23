@@ -41,12 +41,34 @@ _estado: dict = {"programa": None}
 _ultima_actividad: float = time.time()
 _TIMEOUT_SEGUNDOS: int = 7    # si pasan 7 s sin heartbeat → apagar
 _INTERVALO_CHEQUEO: int = 5   # el hilo revisa cada 5 s
+# El vigilante solo se arma tras el primer heartbeat: si el navegador tarda en
+# abrir (o hay que abrirlo a mano) el servidor no se apaga antes de tiempo.
+_primer_latido: bool = False
+# Peticiones en curso (ej. /editar descargando la guía): nunca apagar durante una
+_peticiones_activas: int = 0
+_lock_peticiones = threading.Lock()
+
+
+@app.before_request
+def _inicio_peticion():
+    global _peticiones_activas, _ultima_actividad
+    with _lock_peticiones:
+        _peticiones_activas += 1
+    _ultima_actividad = time.time()
+
+
+@app.teardown_request
+def _fin_peticion(_exc):
+    global _peticiones_activas, _ultima_actividad
+    with _lock_peticiones:
+        _peticiones_activas -= 1
+    _ultima_actividad = time.time()
 
 
 @app.route("/api/heartbeat")
 def api_heartbeat():
-    global _ultima_actividad
-    _ultima_actividad = time.time()
+    global _primer_latido
+    _primer_latido = True
     return "", 204
 
 
@@ -54,7 +76,8 @@ def _vigilante_heartbeat() -> None:
     """Hilo daemon que apaga el proceso si el navegador deja de latir."""
     while True:
         time.sleep(_INTERVALO_CHEQUEO)
-        if time.time() - _ultima_actividad > _TIMEOUT_SEGUNDOS:
+        if (_primer_latido and _peticiones_activas == 0
+                and time.time() - _ultima_actividad > _TIMEOUT_SEGUNDOS):
             print("Navegador cerrado. Apagando servidor...")
             os._exit(0)
 
