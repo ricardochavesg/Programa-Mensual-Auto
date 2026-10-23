@@ -20,7 +20,9 @@ from typing import Optional
 from flask import Flask, jsonify, redirect, render_template, request, send_file
 
 import assignator as engine
+import config
 import db
+import guia
 import renderer
 from paths import external_path, internal_path
 
@@ -373,6 +375,9 @@ def editar():
         mes=programa.get("mes") or engine.mes_por_defecto(),
         avisos=programa.get("avisos", []),
         historial_guardado=bool(programa.get("historial_guardado")),
+        banner_color=programa.get("banner_color") or config.PALETA_BANNER[0],
+        paleta_banner=config.PALETA_BANNER,
+        mostrar_limpieza=config.leer()["mostrar_limpieza"],
     )
 
 
@@ -388,6 +393,8 @@ def guardar():
 
     programa_final   = _aplicar_cambios(prog_base, cambios)
     programa_final   = _limpiar_nulos(programa_final)
+    if data.get("banner_color"):
+        programa_final["banner_color"] = data["banner_color"]
     _estado["programa"] = programa_final
 
     try:
@@ -419,6 +426,8 @@ def api_guardar_borrador():
     cambios = data.get("cambios", {})
     programa_guardado = _aplicar_cambios(prog_base, cambios)
     programa_guardado = _limpiar_nulos(programa_guardado)
+    if data.get("banner_color"):
+        programa_guardado["banner_color"] = data["banner_color"]
     _estado["programa"] = programa_guardado
 
     try:
@@ -439,6 +448,26 @@ def api_descartar_borrador():
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/disponibilidad")
+def api_disponibilidad():
+    """Qué meses del año tienen la guía publicada en wol.jw.org (o en caché)."""
+    try:
+        anio = int(request.args.get("anio", ""))
+    except ValueError:
+        return jsonify({"ok": False, "error": "Año inválido"}), 400
+    return jsonify({"ok": True, "anio": anio, "meses": guia.disponibilidad_anio(anio)})
+
+
+@app.route("/api/config", methods=["POST"])
+def api_config():
+    """Guarda preferencias que el programa recuerda (ej. mostrar la fila de limpieza)."""
+    data = request.get_json(force=True)
+    cambios = {}
+    if "mostrar_limpieza" in data:
+        cambios["mostrar_limpieza"] = bool(data["mostrar_limpieza"])
+    return jsonify({"ok": True, "config": config.guardar(**cambios)})
 
 
 @app.route("/imagen")

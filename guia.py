@@ -46,6 +46,14 @@ _MESES_ES = [
 _TIMEOUT = 20
 
 
+class SinConexion(RuntimeError):
+    """No hay internet o wol.jw.org no responde."""
+
+
+class GuiaNoDisponible(RuntimeError):
+    """wol.jw.org respondió, pero esa semana aún no está publicada."""
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Fechas
 # ─────────────────────────────────────────────────────────────────────────────
@@ -147,7 +155,7 @@ def obtener_semana(lunes: date, usar_cache: bool = True) -> dict:
     """
     Devuelve el dict de semana (formato de parser.construir_semana) para el
     lunes indicado, usando la caché o descargando de wol.jw.org.
-    Lanza RuntimeError si no se pudo obtener.
+    Lanza SinConexion o GuiaNoDisponible (ambas RuntimeError) si no se pudo.
     """
     cache = _ruta_cache(lunes)
     nombre = f"wol {lunes.isocalendar()[0]}-W{lunes.isocalendar()[1]:02d}"
@@ -162,18 +170,58 @@ def obtener_semana(lunes: date, usar_cache: bool = True) -> dict:
     url = url_semana(lunes)
     try:
         html = _descargar(url)
+    except urllib.error.HTTPError as exc:
+        raise GuiaNoDisponible(f"{url} respondió {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"No se pudo descargar {url}: {exc}") from exc
+        raise SinConexion(f"No se pudo descargar {url}: {exc}") from exc
 
     secciones, html_util = _extraer_guia(html, url)
     if not _secciones_completas(secciones):
-        raise RuntimeError(f"La página {url} no contiene la guía de actividades esperada.")
+        raise GuiaNoDisponible(f"La página {url} no contiene la guía de actividades esperada.")
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cache.write_text(f"<html><body><article>{html_util}</article></body></html>"
                      if not html_util.lstrip().lower().startswith(("<html", "<!doctype"))
                      else html_util, encoding="utf-8")
     return weekly_parser.construir_semana(nombre, rango_texto(lunes), lunes, secciones)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Disponibilidad (para el selector de mes)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_disponibles: set[tuple[int, int]] = set()   # meses ya confirmados en esta sesión
+
+
+def disponibilidad_mes(anio: int, mes: int) -> str:
+    """
+    'disponible'    → la guía de la última semana del mes está en caché o en wol.
+    'no_disponible' → wol aún no la publicó.
+    'sin_conexion'  → no se pudo consultar (sin internet).
+    La descarga queda en caché, así que generar ese mes luego es inmediato.
+    """
+    if (anio, mes) in _disponibles:
+        return "disponible"
+    semanas = lunes_del_mes(anio, mes)
+    if not semanas:
+        return "no_disponible"
+    try:
+        obtener_semana(semanas[-1])
+    except GuiaNoDisponible:
+        return "no_disponible"
+    except SinConexion:
+        return "sin_conexion"
+    _disponibles.add((anio, mes))
+    return "disponible"
+
+
+def disponibilidad_anio(anio: int) -> dict[int, str]:
+    """Disponibilidad de los 12 meses del año (consultas en paralelo)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        estados = pool.map(lambda m: disponibilidad_mes(anio, m), range(1, 13))
+    return dict(zip(range(1, 13), estados))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Callable, Optional
 
+import config
 import db
 import guia
 import parser as weekly_parser
@@ -623,6 +624,7 @@ def generar_programa(mes: Optional[str] = None) -> dict:
     # Agrupar avisos repetidos (ej. el mismo rol sin candidatos cada semana)
     conteo = Counter(str(w.message) for w in capturados)
     programa["mes"] = mes
+    programa["banner_color"] = random.choice(config.PALETA_BANNER)
     programa["avisos"] = avisos + [f"{msg} (×{n})" if n > 1 else msg for msg, n in conteo.items()]
     if programa["avisos"]:
         print(f"\n  [!] {len(programa['avisos'])} advertencia(s) durante la asignacion:")

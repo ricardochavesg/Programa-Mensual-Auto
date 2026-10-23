@@ -33,15 +33,10 @@ def _crear_directorios() -> None:
 
 def _crear_config_ejemplo() -> None:
     """Crea config.json con valores predeterminados si no existe."""
-    import json
-    cfg_path = external_path("config.json")
-    if not cfg_path.exists():
-        cfg_path.write_text(
-            json.dumps({"dia_reunion": "Miércoles", "dia_fds": "Domingo"},
-                       ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        print(f"[INFO] config.json creado en: {cfg_path}")
+    import config
+    if not config.CONFIG_FILE.exists():
+        config.guardar(**config.PREDETERMINADO)
+        print(f"[INFO] config.json creado en: {config.CONFIG_FILE}")
 
 
 def _crear_personal_ejemplo() -> None:

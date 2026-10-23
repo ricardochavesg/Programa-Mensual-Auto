@@ -24,6 +24,7 @@ from html2image import Html2Image
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 
+import config
 import db
 from paths import external_path, internal_path
 
@@ -252,7 +253,7 @@ def _persona_celda(nombre: Optional[str], foto_map: dict) -> dict:
 # Normalización del programa → tabla de filas
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _normalizar(programa: dict, foto_map: dict) -> dict:
+def _normalizar(programa: dict, foto_map: dict, mostrar_limpieza: bool = True) -> dict:
     """
     Convierte el dict del programa en la estructura plana que consume
     el template Jinja2:
@@ -318,7 +319,7 @@ def _normalizar(programa: dict, foto_map: dict) -> dict:
             else:
                 celdas.append([_persona_celda(None, foto_map)])
         lbl_tesoros = ["Tesoros", "Perlas", "Lectura"][i]
-        _fila("tesoros", "💎", i + 1, lbl_tesoros, celdas)
+        _fila("tesoros", "", i + 1, lbl_tesoros, celdas)
 
     # ── Maestros ─────────────────────────────────────────────────────────────
     max_maestros = max((len(s["asignaciones"]["maestros"]) for s in semanas), default=0)
@@ -334,38 +335,25 @@ def _normalizar(programa: dict, foto_map: dict) -> dict:
             else:
                 celdas.append([_persona_celda(None, foto_map)])
 
-        _fila("maestros", "🌾", trigo_num, "", celdas)
+        _fila("maestros", "", trigo_num, "", celdas)
         trigo_num += 1
 
     # ── Vida Cristiana ───────────────────────────────────────────────────────
     # Estructura uniforme: cada parte tiene siempre un campo 'asignado'.
-    # tipo == 'Libro'  → última parte (Estudio Bíblico, rol Libro)
-    # tipo == 'Oveja'  → partes anteriores
     max_vc    = max((len(s["asignaciones"]["vida_cristiana"]) for s in semanas), default=0)
     oveja_num = 1
     for i in range(max_vc):
-        celdas   = []
-        tipo_dom = None
+        celdas = []
         for s in semanas:
             partes = s["asignaciones"]["vida_cristiana"]
             if i < len(partes):
-                parte   = partes[i]
-                tipo    = parte.get("tipo", "Oveja")
-                if tipo_dom is None:
-                    tipo_dom = tipo
-                nombres = _extraer_personas_parte(parte)
+                nombres = _extraer_personas_parte(partes[i])
                 celdas.append([_persona_celda(n, foto_map) for n in nombres])
             else:
                 celdas.append([_persona_celda(None, foto_map)])
 
-        tipo_dom = tipo_dom or "Oveja"
-        if tipo_dom == "Libro":
-            icono, num, etiqueta = "🐑", oveja_num, f"{oveja_num}. "
-        else:
-            icono, num, etiqueta = "🐑", oveja_num, ""
+        _fila("vida_cristiana", "", oveja_num, "", celdas)
         oveja_num += 1
-
-        _fila("vida_cristiana", icono, num, etiqueta, celdas)
 
     # ── Fin de semana ─────────────────────────────────────────────────────────
     for key, (emo, lbl) in LOGISTICA_META.items():
@@ -373,8 +361,9 @@ def _normalizar(programa: dict, foto_map: dict) -> dict:
         _fila("fin_de_semana", emo, 0, lbl, _celdas_logistica(key, n, True))
 
     # ── Limpieza ──────────────────────────────────────────────────────────────
-    limpiezas = [s["asignaciones"].get("limpieza", "—") for s in semanas]
-    _fila("limpieza", "🧹", 0, "Limpieza", limpiezas, es_limpieza=True)
+    if mostrar_limpieza:
+        limpiezas = [s["asignaciones"].get("limpieza", "—") for s in semanas]
+        _fila("limpieza", "🧹", 0, "Limpieza", limpiezas, es_limpieza=True)
 
     # ── Marcar cabeceras de sección ───────────────────────────────────────────
     seccion_vista: set[str] = set()
@@ -401,6 +390,7 @@ def _normalizar(programa: dict, foto_map: dict) -> dict:
 
     return {
         "titulo":      titulo,
+        "banner_color": programa.get("banner_color") or config.PALETA_BANNER[0],
         "generado":    datetime.now().strftime("%d/%m/%Y %H:%M"),
         "headers":     headers,
         "filas":       filas,
@@ -458,7 +448,7 @@ def renderizar(programa: dict) -> Path:
 
     # 2. Normalizar datos
     print("[Renderer 2/4] Normalizando datos para el template...")
-    ctx = _normalizar(programa, foto_map)
+    ctx = _normalizar(programa, foto_map, config.leer()["mostrar_limpieza"])
     n_semanas = len(ctx["headers"])
     n_filas   = len(ctx["filas"])
     print(f"              {n_semanas} semana(s), {n_filas} fila(s) de tabla.")
