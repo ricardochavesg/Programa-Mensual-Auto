@@ -10,7 +10,8 @@ Requisitos:
 
 Resultado:
     dist/Programa_Reuniones.exe   ← ejecutable portátil
-    dist/Personal_nuevo.xlsx      ← (opcional) se migra a programa.db en el primer arranque
+    dist/programa.db              ← base de datos (copiada si existe en desarrollo)
+    dist/Personal_nuevo.xlsx      ← solo si no hay programa.db: se migra en el primer arranque
     dist/input_html/              ← HTML manuales de JW.org (opcional: la guía se descarga sola)
     dist/cache_guias/             ← copias de las guías descargadas
     dist/fotos/                   ← carpeta para las fotos del personal
@@ -117,12 +118,25 @@ def preparar_dist() -> None:
         )
         print("      Archivo creado: dist/config.json")
 
-    # Copiar Personal_nuevo.xlsx si existe (se migra a programa.db al arrancar)
-    personal_src = HERE / "Personal_nuevo.xlsx"
-    personal_dst = DIST / "Personal_nuevo.xlsx"
-    if personal_src.exists() and not personal_dst.exists():
-        shutil.copy2(personal_src, personal_dst)
-        print("      Archivo copiado: dist/Personal_nuevo.xlsx")
+    # Datos del personal: programa.db si existe; si no, Personal_nuevo.xlsx
+    # (que el .exe migra a programa.db en el primer arranque).
+    # Nunca se sobrescribe una base que ya esté en dist/ (datos reales del usuario).
+    db_src     = HERE / "programa.db"
+    db_dst     = DIST / "programa.db"
+    excel_src  = HERE / "Personal_nuevo.xlsx"
+    excel_dst  = DIST / "Personal_nuevo.xlsx"
+    if db_dst.exists():
+        print("      Se conserva la base existente: dist/programa.db")
+    elif db_src.exists():
+        shutil.copy2(db_src, db_dst)
+        print("      Archivo copiado: dist/programa.db (personal + historial)")
+    elif excel_src.exists():
+        if not excel_dst.exists():
+            shutil.copy2(excel_src, excel_dst)
+        print("      programa.db no encontrada: se usará dist/Personal_nuevo.xlsx "
+              "(se migra al abrir el .exe)")
+    else:
+        print("      Sin programa.db ni Personal_nuevo.xlsx: el .exe creará personal de ejemplo")
 
     # Limpiar artefactos de PyInstaller del directorio raíz
     spec_file = HERE / f"{EXE_NAME}.spec"
