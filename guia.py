@@ -1,14 +1,16 @@
 """
 guia.py
 Obtiene automáticamente la Guía de actividades (Vida y Ministerio Cristianos)
-de cada semana del mes desde wol.jw.org — ya no hace falta descargar el HTML
-a mano.
+de cada semana del mes desde wol.jw.org o jw.org — ya no hace falta descargar
+el HTML a mano.
 
 Orden de búsqueda por semana:
   1. input_html/   → archivo descargado manualmente (tiene prioridad, sirve
                      para corregir una semana concreta).
   2. cache_guias/  → copia de una descarga anterior (funciona sin internet).
   3. wol.jw.org    → descarga y guarda en cache_guias/.
+  4. jw.org        → cuadernillo bimestral (ej. enero-febrero-2027-mwb), que
+                     suele publicarse antes que en wol.jw.org.
 
 Configurable en config.json:
   "wol_idioma": "es", "wol_r": "r4", "wol_lp": "lp-s"
@@ -17,6 +19,7 @@ Configurable en config.json:
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from datetime import date, timedelta
@@ -151,22 +154,82 @@ def _ruta_cache(lunes: date):
     return CACHE_DIR / f"{WOL_IDIOMA}_{anio}-W{semana:02d}.html"
 
 
-def obtener_semana(lunes: date, usar_cache: bool = True) -> dict:
-    """
-    Devuelve el dict de semana (formato de parser.construir_semana) para el
-    lunes indicado, usando la caché o descargando de wol.jw.org.
-    Lanza SinConexion o GuiaNoDisponible (ambas RuntimeError) si no se pudo.
-    """
-    cache = _ruta_cache(lunes)
-    nombre = f"wol {lunes.isocalendar()[0]}-W{lunes.isocalendar()[1]:02d}"
+# ─────────────────────────────────────────────────────────────────────────────
+# Fuente alternativa: jw.org (publica la guía antes que wol.jw.org)
+# ─────────────────────────────────────────────────────────────────────────────
 
-    if usar_cache and cache.exists():
-        secciones = weekly_parser._extraer_secciones_articulo(
-            BeautifulSoup(cache.read_text(encoding="utf-8"), "lxml")
-        )
+JW_BIBLIOTECA = f"https://www.jw.org/{WOL_IDIOMA}/biblioteca/guia-actividades-reunion-testigos-jehova/"
+_PARES_MESES = ["enero-febrero", "marzo-abril", "mayo-junio",
+                "julio-agosto", "septiembre-octubre", "noviembre-diciembre"]
+_indices_jw: dict[str, str] = {}   # url del cuadernillo → html (en memoria)
+
+
+def _normalizar_texto(texto: str) -> str:
+    """'Vida-y-Ministerio_ 4-a-10-de-Enero' → 'vida y ministerio 4 a 10 de enero' (sin acentos)."""
+    import unicodedata
+    from urllib.parse import unquote
+
+    t = unicodedata.normalize("NFKD", unquote(texto)).encode("ascii", "ignore").decode().lower()
+    return " ".join(t.replace("-", " ").replace("_", " ").replace("–", " ").split())
+
+
+def urls_cuadernillo_jw(lunes: date) -> list[str]:
+    """Cuadernillos bimestrales que podrían contener la semana (ej. enero-febrero-2027-mwb)."""
+    urls = []
+    for d in (lunes, lunes + timedelta(days=6)):
+        url = f"{JW_BIBLIOTECA}{_PARES_MESES[(d.month - 1) // 2]}-{d.year}-mwb/"
+        if url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _enlace_semana_jw(indice_html: str, url_indice: str, lunes: date) -> Optional[str]:
+    """Busca en el índice del cuadernillo el enlace a la semana que empieza en `lunes`."""
+    objetivo = _normalizar_texto(rango_texto(lunes))
+    patron = re.compile(
+        r"\d{1,2}(?: de \w+)?(?: de \d{4})? a \d{1,2} de \w+ de \d{4}"
+    )
+    for a in BeautifulSoup(indice_html, "lxml").find_all("a", href=True):
+        for texto in (a.get_text(" ", strip=True), a["href"]):
+            norm = _normalizar_texto(texto)
+            if objetivo in norm:
+                return urljoin(url_indice, a["href"])
+            m = patron.search(norm)
+            if m and weekly_parser.extraer_fecha_inicio(m.group(0)) == lunes:
+                return urljoin(url_indice, a["href"])
+    return None
+
+
+def _desde_jw(lunes: date) -> tuple[dict, str, str]:
+    """Descarga la semana desde jw.org. Devuelve (secciones, html, url)."""
+    sin_conexion = True
+    for url_indice in urls_cuadernillo_jw(lunes):
+        try:
+            if url_indice not in _indices_jw:
+                _indices_jw[url_indice] = _descargar(url_indice)
+            sin_conexion = False
+        except urllib.error.HTTPError:
+            sin_conexion = False      # el cuadernillo aún no existe
+            continue
+        except (urllib.error.URLError, TimeoutError, OSError):
+            continue
+        enlace = _enlace_semana_jw(_indices_jw[url_indice], url_indice, lunes)
+        if not enlace:
+            continue
+        try:
+            html = _descargar(enlace)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            continue
+        secciones = weekly_parser._extraer_secciones_articulo(BeautifulSoup(html, "lxml"))
         if _secciones_completas(secciones):
-            return weekly_parser.construir_semana(nombre, rango_texto(lunes), lunes, secciones)
+            return secciones, html, enlace
+    if sin_conexion:
+        raise SinConexion("No se pudo conectar con jw.org")
+    raise GuiaNoDisponible(f"jw.org aún no tiene la semana {rango_texto(lunes)}")
 
+
+def _desde_wol(lunes: date) -> tuple[dict, str, str]:
+    """Descarga la semana desde wol.jw.org. Devuelve (secciones, html, url)."""
     url = url_semana(lunes)
     try:
         html = _descargar(url)
@@ -178,7 +241,44 @@ def obtener_semana(lunes: date, usar_cache: bool = True) -> dict:
     secciones, html_util = _extraer_guia(html, url)
     if not _secciones_completas(secciones):
         raise GuiaNoDisponible(f"La página {url} no contiene la guía de actividades esperada.")
+    return secciones, html_util, url
 
+
+# Última fuente usada por semana (para mostrarla en la actividad)
+fuente_semana: dict[date, str] = {}
+
+
+def obtener_semana(lunes: date, usar_cache: bool = True) -> dict:
+    """
+    Devuelve el dict de semana (formato de parser.construir_semana) para el
+    lunes indicado: caché → wol.jw.org → jw.org.
+    Lanza SinConexion o GuiaNoDisponible (ambas RuntimeError) si no se pudo.
+    """
+    cache = _ruta_cache(lunes)
+    nombre = f"wol {lunes.isocalendar()[0]}-W{lunes.isocalendar()[1]:02d}"
+
+    if usar_cache and cache.exists():
+        secciones = weekly_parser._extraer_secciones_articulo(
+            BeautifulSoup(cache.read_text(encoding="utf-8"), "lxml")
+        )
+        if _secciones_completas(secciones):
+            fuente_semana[lunes] = "caché"
+            return weekly_parser.construir_semana(nombre, rango_texto(lunes), lunes, secciones)
+
+    errores: list[RuntimeError] = []
+    for fuente in (_desde_wol, _desde_jw):
+        try:
+            secciones, html_util, url = fuente(lunes)
+            break
+        except (SinConexion, GuiaNoDisponible) as exc:
+            errores.append(exc)
+    else:
+        # Si alguna fuente respondió "no publicada", no es problema de conexión
+        if any(isinstance(e, GuiaNoDisponible) for e in errores):
+            raise GuiaNoDisponible(" / ".join(str(e) for e in errores))
+        raise SinConexion(" / ".join(str(e) for e in errores))
+
+    fuente_semana[lunes] = url
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cache.write_text(f"<html><body><article>{html_util}</article></body></html>"
                      if not html_util.lstrip().lower().startswith(("<html", "<!doctype"))
@@ -252,7 +352,7 @@ def obtener_semanas_mes(anio: int, mes: int) -> tuple[list[dict], list[str]]:
             continue
         try:
             semana = obtener_semana(lunes)
-            print(f"     {rango_texto(lunes)}: guía obtenida ({url_semana(lunes)})")
+            print(f"     {rango_texto(lunes)}: guía obtenida ({fuente_semana.get(lunes, '')})")
         except RuntimeError as exc:
             print(f"  [WARN] {exc}")
             avisos.append(
