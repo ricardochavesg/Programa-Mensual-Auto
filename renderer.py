@@ -160,16 +160,12 @@ def _buscar_archivo_foto(fotos_dir: Path, nombre_archivo: str) -> Optional[Path]
 def _foto_a_b64(nombre_archivo: str) -> Optional[str]:
     """
     Busca nombre_archivo en FOTOS_DIR, lo convierte a data URI base64.
-    Imprime diagnóstico en consola para cada intento.
+    Solo imprime si falla la lectura de un archivo existente.
     Devuelve None si no se encuentra o falla la lectura (→ avatar con iniciales).
     """
-    ruta_buscada = FOTOS_DIR / nombre_archivo
-    print(f"      Buscando foto: {ruta_buscada.resolve()}")
-
     found = _buscar_archivo_foto(FOTOS_DIR, nombre_archivo)
 
     if found is None:
-        print(f"      Foto NO encontrada, usando iniciales.")
         return None
 
     try:
@@ -178,7 +174,6 @@ def _foto_a_b64(nombre_archivo: str) -> Optional[str]:
         with open(found, "rb") as fh:
             raw = fh.read()
         data = base64.b64encode(raw).decode("ascii").replace("\n", "")
-        print(f"      Foto encontrada y convertida. ({len(data):,} chars, {mime})")
         return f"data:{mime};base64,{data}"
     except Exception as exc:
         print(f"      ERROR al convertir {found.name}: {exc}")

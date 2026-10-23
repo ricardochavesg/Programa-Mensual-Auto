@@ -2,8 +2,9 @@
 main.py
 Punto de entrada principal del sistema.
 
-Inicia el servidor Flask y abre automáticamente el navegador en
-http://127.0.0.1:5000/editar para la edición interactiva del programa.
+Muestra la ventana de control (barra de tareas), inicia el servidor Flask
+y abre automáticamente el navegador en http://127.0.0.1:5000/editar.
+El programa sigue activo hasta pulsar "Cerrar programa" en la ventana.
 
 Uso:
   python main.py          (desarrollo)
@@ -78,17 +79,17 @@ def _inicializar_entorno() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    _inicializar_entorno()
+    import ventana
 
-    from app import run
+    def preparar():
+        print("=" * 50)
+        print("  SISTEMA DE ASIGNACION DE ROLES")
+        print("=" * 50)
+        _inicializar_entorno()
+        from app import app
+        return app
 
-    print("=" * 60)
-    print("  SISTEMA DE ASIGNACION DE ROLES")
-    print("=" * 60)
-    print("  Abriendo interfaz web en http://127.0.0.1:5000/editar")
-    print("  Presiona Ctrl+C para detener el servidor.")
-    print("=" * 60)
-    run(port=5000, open_browser=True)
+    ventana.ejecutar(puerto=5000, preparar=preparar)
 
 
 if __name__ == "__main__":

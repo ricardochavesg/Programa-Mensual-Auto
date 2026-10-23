@@ -38,10 +38,5 @@
     {% block content %}{% endblock %}
   </main>
 
-  <script>
-    // Heartbeat: mantiene el servidor vivo mientras la pestaña está abierta.
-    // Si la pestaña se cierra, el servidor se apaga automáticamente en ~7 s.
-    setInterval(() => fetch('/api/heartbeat').catch(() => {}), 2000);
-  </script>
 </body>
 </html>

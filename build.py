@@ -68,7 +68,7 @@ def compilar() -> None:
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
-        "--windowed",                          # Sin ventana de consola negra
+        "--windowed",                          # Sin consola: la actividad se ve en la ventana de control
         f"--name={EXE_NAME}",
         f"--add-data=templates{sep}templates", # Empaquetar plantillas HTML dentro del .exe
         # Hidden imports comunes de Flask y dependencias
@@ -82,6 +82,7 @@ def compilar() -> None:
         "--hidden-import=lxml",
         "--hidden-import=lxml.etree",
         "--hidden-import=sqlite3",
+        "--hidden-import=tkinter",
         "--hidden-import=pkg_resources.py2_compat",
         # Suprimir advertencias de análisis de módulos innecesarios
         "--noconfirm",
