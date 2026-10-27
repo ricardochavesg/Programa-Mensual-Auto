@@ -490,6 +490,27 @@ def test_editor_limpieza_y_asamblea(cliente):
     assert cliente.post("/api/limpieza", json={"orden": [], "inicio": "2026-11-02"}).status_code == 400
 
 
+def test_borrador_antiguo_toma_la_limpieza_nueva(cliente):
+    """Un borrador de antes del cambio (solo el grupo) no debe exportar el formato viejo."""
+    config.guardar(limpieza=GRUPOS)
+    cliente.get("/editar?mes=2026-11")
+    viejo = app_mod._estado["programa"]
+    for s in viejo["semanas"]:
+        s["asignaciones"]["limpieza"] = "Sur"
+    app_mod.BORRADOR_JSON.write_text(json.dumps(viejo), encoding="utf-8")
+
+    html = cliente.get("/editar?mes=2026-11").get_data(as_text=True)
+    assert "borrador guardado" in html
+    lp = app_mod._estado["programa"]["semanas"][0]["asignaciones"]["limpieza"]
+    assert lp["es"] == {"grupo": "Norte", "encargado": "Norlan", "especial": ""}
+    assert lp["fds"]["encargado"] == "Chaves"
+
+
+def test_imagen_sin_cache(cliente):
+    renderer.OUTPUT_PNG.write_bytes(b"png")
+    assert cliente.get("/imagen").headers["Cache-Control"] == "no-store"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Estadísticas
 # ─────────────────────────────────────────────────────────────────────────────

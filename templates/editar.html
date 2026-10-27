@@ -721,7 +721,9 @@ async function generarImagen() {
       const panel  = document.getElementById('result-panel');
       const imgEl  = document.getElementById('preview-img');
       panel.classList.remove('hidden');
-      imgEl.src = '/imagen?' + Date.now();
+      const marca = Date.now();
+      imgEl.src = '/imagen?' + marca;
+      document.getElementById('result-download').href = '/imagen?' + marca;
       panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       btnIcon.textContent  = '✅';
       btnLabel.textContent = 'Imagen generada';

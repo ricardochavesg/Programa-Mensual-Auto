@@ -491,6 +491,8 @@ def renderizar(programa: dict) -> Path:
     )
     # Pequeña pausa para que Chrome decodifique los data URIs antes del screenshot
     time.sleep(1)
+    # Borrar la imagen anterior: si Chrome falla no debe quedar la vieja como si fuera nueva
+    OUTPUT_PNG.unlink(missing_ok=True)
     hti.screenshot(
         html_file=str(TEMP_HTML),
         save_as=OUTPUT_PNG.name,
@@ -501,7 +503,8 @@ def renderizar(programa: dict) -> Path:
         _recortar_blanco(OUTPUT_PNG)
         print(f"[OK] Imagen generada: {OUTPUT_PNG}")
     else:
-        print("[WARN] No se encontro el PNG de salida. Revisa si Chrome esta disponible.")
+        raise RuntimeError("Chrome no generó la imagen. Revisa que Google Chrome o Edge "
+                           "estén instalados.")
 
     return OUTPUT_PNG
 

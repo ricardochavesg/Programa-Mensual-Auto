@@ -286,6 +286,19 @@ def _fecha_reunion_texto(semana: dict, reunion: str) -> str:
     return f"{_DIAS[d.weekday()]} {d.strftime('%d/%m')}"
 
 
+def _migrar_limpieza(programa: dict) -> dict:
+    """
+    Borradores guardados antes de la limpieza leve/profunda solo tenían el
+    nombre del grupo: se recalcula la rotación actual (grupo + encargados).
+    """
+    for semana in programa.get("semanas", []):
+        asig = semana.get("asignaciones", {})
+        if not isinstance(asig.get("limpieza"), dict):
+            lunes = _lunes_semana(semana)
+            asig["limpieza"] = limpieza.calcular(date.fromisoformat(lunes) if lunes else None)
+    return programa
+
+
 def _limpiar_nulos(programa: dict) -> dict:
     """
     Elimina de cada parte (maestros, tesoros, vida_cristiana) las claves
@@ -404,7 +417,7 @@ def editar():
         try:
             borrador = json.loads(BORRADOR_JSON.read_text(encoding="utf-8"))
             if mes_pedido is None or borrador.get("mes") == mes_pedido:
-                programa = borrador
+                programa = _migrar_limpieza(borrador)
                 desde_borrador = True
                 print("\n[Web /editar] Borrador cargado desde borrador_programa.json")
         except Exception as exc:
@@ -589,7 +602,9 @@ def imagen():
     png = renderer.OUTPUT_PNG
     if not png.exists():
         return "Imagen no generada aún", 404
-    return send_file(str(png), mimetype="image/png")
+    resp = send_file(str(png), mimetype="image/png", max_age=0, etag=False)
+    resp.headers["Cache-Control"] = "no-store"   # nunca mostrar/descargar una imagen anterior
+    return resp
 
 
 # ─────────────────────────────────────────────────────────────────────────────
