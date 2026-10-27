@@ -506,6 +506,20 @@ def test_borrador_antiguo_toma_la_limpieza_nueva(cliente):
     assert lp["fds"]["encargado"] == "Chaves"
 
 
+def test_captura_fallida_explica_el_motivo(entorno, monkeypatch):
+    """Si el navegador no genera la imagen, el error dice qué respondió (antes quedaba la vieja)."""
+    import sys
+    monkeypatch.setattr(renderer, "_buscar_navegadores", lambda: [sys.executable])
+    html = entorno["dir"] / "x.html"
+    html.write_text("<p>x</p>", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="no generó la imagen") as err:
+        renderer._capturar(html, entorno["dir"] / "x.png", (100, 100))
+    assert "--headless=new" in str(err.value) and "--headless:" in str(err.value)
+    monkeypatch.setattr(renderer, "_buscar_navegadores", lambda: [])
+    with pytest.raises(RuntimeError, match="Chrome ni Microsoft Edge"):
+        renderer._capturar(html, entorno["dir"] / "x.png", (100, 100))
+
+
 def test_imagen_sin_cache(cliente):
     renderer.OUTPUT_PNG.write_bytes(b"png")
     assert cliente.get("/imagen").headers["Cache-Control"] == "no-store"

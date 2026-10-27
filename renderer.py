@@ -6,7 +6,7 @@ Flujo:
   1. Carga fotos como base64 desde /fotos (fallback: iniciales)
   2. Normaliza el programa en filas de tabla
   3. Renderiza templates/programa.html con Jinja2 → temp.html
-  4. Captura PNG con html2image (Chrome headless, 1240 px)
+  4. Captura PNG con Chrome/Edge headless (ver _capturar)
   5. Recorta espacio blanco inferior con PIL
 
 (El historial de asignaciones se guarda desde app.py en la base de datos.)
@@ -15,12 +15,14 @@ Flujo:
 from __future__ import annotations
 
 import base64
-import time
+import platform
+import shutil
+import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from html2image import Html2Image
 from jinja2 import Environment, FileSystemLoader
 from PIL import Image
 
@@ -434,6 +436,85 @@ def _recortar_blanco(png_path: Path, padding: int = 40) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Captura con Chrome / Edge headless
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _buscar_navegadores() -> list[str]:
+    """Ejecutables de Chrome y Edge instalados (en ese orden)."""
+    from html2image.browsers.chrome import _find_chrome
+    from html2image.browsers.edge import _find_edge
+
+    encontrados: list[str] = []
+    for buscar in (_find_chrome, _find_edge):
+        try:
+            exe = buscar()
+        except Exception:
+            continue
+        if exe and exe not in encontrados:
+            encontrados.append(exe)
+    return encontrados
+
+
+def _capturar(html: Path, png: Path, tamano: tuple[int, int]) -> None:
+    """
+    Toma la captura de `html` y la guarda en `png`.
+
+    Se lanza el navegador directamente (no con html2image, que oculta los
+    errores) con un perfil temporal propio —así no choca con el Chrome que el
+    usuario tiene abierto— y la captura se escribe en una carpeta temporal
+    (fuera de Documentos/OneDrive) antes de moverla a su lugar. Se prueba
+    Chrome y luego Edge, cada uno con el modo headless nuevo y el antiguo.
+    Si todo falla, el error incluye lo que respondió el navegador.
+    """
+    navegadores = _buscar_navegadores()
+    if not navegadores:
+        raise RuntimeError("No se encontró Google Chrome ni Microsoft Edge instalado; "
+                           "hace falta uno de los dos para generar la imagen.")
+
+    extra = {}
+    if platform.system() == "Windows":
+        extra["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    fallos: list[str] = []
+    for exe in navegadores:
+        for headless in ("--headless=new", "--headless"):
+            with tempfile.TemporaryDirectory(prefix="programa_reuniones_") as tmp:
+                salida = Path(tmp) / "captura.png"
+                comando = [
+                    exe, headless,
+                    f"--user-data-dir={Path(tmp) / 'perfil'}",
+                    f"--screenshot={salida}",
+                    f"--window-size={tamano[0]},{tamano[1]}",
+                    "--force-device-scale-factor=2",       # resolución 2× (efecto Retina)
+                    "--hide-scrollbars",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-extensions",
+                    "--virtual-time-budget=3000",          # deja cargar fotos y el script de asamblea
+                    html.resolve().as_uri(),
+                ]
+                try:
+                    r = subprocess.run(comando, stdin=subprocess.DEVNULL, capture_output=True,
+                                       text=True, errors="replace", timeout=120, **extra)
+                    detalle = (r.stderr or r.stdout or "").strip().splitlines()[-3:]
+                except subprocess.TimeoutExpired:
+                    detalle = ["no respondió en 2 minutos"]
+                except OSError as exc:
+                    detalle = [str(exc)]
+
+                if salida.exists() and salida.stat().st_size > 0:
+                    shutil.move(str(salida), str(png))
+                    print(f"              Captura con {Path(exe).name} ({headless})")
+                    return
+                fallos.append(f"{Path(exe).name} {headless}: " + (" | ".join(detalle) or "sin respuesta"))
+                print(f"[WARN] Falló la captura con {exe} {headless}: {fallos[-1]}")
+
+    raise RuntimeError("El navegador no generó la imagen.\n" + "\n".join(fallos))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Función principal
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -480,31 +561,12 @@ def renderizar(programa: dict) -> Path:
     # Ancho: 1400 px del programa + 20 px de margen a cada lado
     ancho = 1440
 
-    hti = Html2Image(
-        output_path=str(OUTPUT_PNG.parent),
-        custom_flags=[
-            "--no-sandbox",
-            "--disable-gpu",
-            "--hide-scrollbars",
-            "--force-device-scale-factor=2",   # resolución 2× (efecto Retina)
-        ],
-    )
-    # Pequeña pausa para que Chrome decodifique los data URIs antes del screenshot
-    time.sleep(1)
-    # Borrar la imagen anterior: si Chrome falla no debe quedar la vieja como si fuera nueva
+    # Borrar la imagen anterior: si la captura falla no debe quedar la vieja como si fuera nueva
     OUTPUT_PNG.unlink(missing_ok=True)
-    hti.screenshot(
-        html_file=str(TEMP_HTML),
-        save_as=OUTPUT_PNG.name,
-        size=(ancho, alto_seguro),  # CSS pixels; con scale-factor=2 → 2880×(alto×2) px reales
-    )
+    _capturar(TEMP_HTML, OUTPUT_PNG, (ancho, alto_seguro))
 
-    if OUTPUT_PNG.exists():
-        _recortar_blanco(OUTPUT_PNG)
-        print(f"[OK] Imagen generada: {OUTPUT_PNG}")
-    else:
-        raise RuntimeError("Chrome no generó la imagen. Revisa que Google Chrome o Edge "
-                           "estén instalados.")
+    _recortar_blanco(OUTPUT_PNG)
+    print(f"[OK] Imagen generada: {OUTPUT_PNG}")
 
     return OUTPUT_PNG
 

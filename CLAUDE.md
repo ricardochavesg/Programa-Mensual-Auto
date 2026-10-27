@@ -38,7 +38,7 @@ app.py /editar?mes=YYYY-MM
        ├─ db.historial(antes del mes)               reparto y rotación respecto al mes anterior
        └─ Assignator.asignar_mes()  → programa (dict) + avisos
 app.py /guardar (botón "Generar Imagen Final")
-  ├─ renderer.renderizar(programa)                  templates/programa.html → html2image (Chrome) → PNG
+  ├─ renderer.renderizar(programa)                  templates/programa.html → Chrome/Edge headless → PNG
   └─ db.guardar_historial(assignator.filas_historial(programa))   (reemplaza por semana: idempotente)
 ```
 
@@ -102,7 +102,7 @@ Roles oficiales: `db.ROLES_OFICIALES`. `db.normalizar_rol()` acepta variantes (`
 
 ## Entorno y trampas conocidas
 
-- Objetivo: **Windows** (`Segoe UI`, `.exe`). html2image necesita Chrome/Edge instalado en la PC del usuario.
+- Objetivo: **Windows** (`Segoe UI`, `.exe`). La imagen necesita Chrome o Edge instalado: `renderer._capturar` lanza el navegador headless directamente (de html2image solo se usan los buscadores de ejecutables), con perfil y salida en una carpeta temporal, prueba `--headless=new` y `--headless`, y si falla el error muestra lo que respondió el navegador. Nunca dejes que una captura fallida pase como éxito (antes quedaba la imagen anterior).
 - El editor usa Tailwind desde `cdn.tailwindcss.com` (requiere internet para verse con estilos).
 - En la nube no hay acceso a jw.org/wol ni al CDN de Tailwind. Para capturas con Playwright se puede servir `@tailwindcss/browser` (npm) interceptando la ruta del CDN, y Chromium está en `/opt/pw-browsers/chromium`. tkinter solo está disponible para `python3.12` del sistema (`xvfb-run` para probar la ventana).
 - `parser.DIA_REUNION`/`DIA_FDS` y `guia.WOL_*` se leen de `config.json` **al importar**.
