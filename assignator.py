@@ -23,6 +23,8 @@ Reglas principales
   repeticiones.
 · Llenado garantizado (must-fill): si no hay nadie libre se relajan las reglas
   en orden; las ausencias y el estado Inactivo nunca se relajan.
+· Semana de asamblea (config "semanas_asamblea"): no se asigna a nadie y no
+  cuenta para el historial; la limpieza de esa semana pierde su turno.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from typing import Callable, Optional
 import config
 import db
 import guia
+import limpieza
 import parser as weekly_parser
 from paths import external_path
 
@@ -45,8 +48,7 @@ from paths import external_path
 # Constantes
 # ─────────────────────────────────────────────────────────────────────────────
 
-OUTPUT_JSON     = external_path("programa_mes.json")
-GRUPOS_LIMPIEZA = ["Norte", "Sur", "Central"]
+OUTPUT_JSON = external_path("programa_mes.json")
 
 ES, FDS = db.ES, db.FDS
 
@@ -142,10 +144,9 @@ class Assignator:
         self._excepcion_hombre_pendiente = True
         self._historial_parejas: dict[str, set[str]] = defaultdict(set)
         self._parejas_restantes_mes = sum(
-            1 for s in self.semanas for p in s["partes"].get("maestros", [])
-            if p.get("tipo") == "Pareja"
+            1 for s in self.semanas if not s.get("asamblea")
+            for p in s["partes"].get("maestros", []) if p.get("tipo") == "Pareja"
         )
-        self._limpieza_idx = 0
 
         # Tamaño del pool de cada rol (personas activas que pueden hacerlo).
         # Sirve para reservar a quienes cubren roles escasos (ej. Presidente).
@@ -209,6 +210,7 @@ class Assignator:
                 "fecha_reunion": (semana["fecha_reunion"].isoformat()
                                   if semana["fecha_reunion"] else None),
                 "fecha_exacta":  semana.get("fecha_exacta", ""),
+                "asamblea":      bool(semana.get("asamblea")),
                 "asignaciones":  asignaciones,
             })
             # Las partes de esta semana pasan a ser "la semana anterior" (descanso).
@@ -252,8 +254,16 @@ class Assignator:
             ],
             "entre_semana":  {k: [None] * n for k, _, _, n in LOGISTICA},
             "fin_de_semana": {k: [None] * n for k, _, _, n in LOGISTICA},
-            "limpieza":      self._siguiente_grupo_limpieza(),
+            "limpieza":      limpieza.calcular(db.lunes_de(inicio) if inicio else None),
         }
+        if semana.get("asamblea"):
+            # Sin reunión en el Salón: nadie asignado (las partes quedan vacías
+            # por si luego se quita la asamblea y se asignan a mano).
+            for i, parte in enumerate(partes.get("maestros", [])):
+                tipo = parte.get("tipo", "Individual")
+                vacia = {"trigo": None, "ayudante": None} if tipo == "Pareja" else {"asignado": None}
+                resultado["maestros"][i] = {"titulo": parte.get("titulo", ""), "tipo": tipo, **vacia}
+            return resultado
 
         # Cada tarea = (rol que determina la escasez, reunión, función que asigna)
         tareas: list[tuple[str, str, Callable[[], None]]] = []
@@ -299,15 +309,6 @@ class Assignator:
             run()
 
         return resultado
-
-    # =========================================================================
-    # LIMPIEZA (rotación Norte → Sur → Central)
-    # =========================================================================
-
-    def _siguiente_grupo_limpieza(self) -> str:
-        grupo = GRUPOS_LIMPIEZA[self._limpieza_idx % len(GRUPOS_LIMPIEZA)]
-        self._limpieza_idx += 1
-        return grupo
 
     # =========================================================================
     # MOTOR DE TRIGOS
@@ -562,7 +563,7 @@ def filas_historial(programa: dict) -> list[dict]:
     mes = programa.get("mes")
     filas: list[dict] = []
     for semana in programa.get("semanas", []):
-        if not semana.get("fecha_reunion"):
+        if not semana.get("fecha_reunion") or semana.get("asamblea"):
             continue
         f_es  = date.fromisoformat(semana["fecha_reunion"])
         lunes = (date.fromisoformat(semana["fecha_inicio"]) if semana.get("fecha_inicio")
@@ -652,6 +653,9 @@ def generar_programa(mes: Optional[str] = None) -> dict:
 
     lunes_mes = tuple(db.lunes_de(s["fecha_inicio"]).isoformat()
                       for s in semanas if s.get("fecha_inicio"))
+    asambleas = set(config.leer()["semanas_asamblea"])
+    for s in semanas:
+        s["asamblea"] = bool(s.get("fecha_inicio")) and db.lunes_de(s["fecha_inicio"]).isoformat() in asambleas
     previo = db.historial(antes_de=min(lunes_mes), excluir_semanas=lunes_mes) if lunes_mes else []
 
     print(f"[3/3] Asignando personal a {len(semanas)} semana(s)...")

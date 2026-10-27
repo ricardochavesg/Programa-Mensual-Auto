@@ -48,13 +48,14 @@ app.py /guardar (botón "Generar Imagen Final")
 |---|---|
 | `main.py` | Entrada. Prepara carpetas, `config.json`, `programa.db` (migra `Personal_nuevo.xlsx` si existe) y abre la ventana. |
 | `ventana.py` | Ventana tkinter en la barra de tareas. Redirige `print` al log de la ventana (el `.exe` es `--windowed`, sin consola). El servidor vive mientras la ventana esté abierta (no hay heartbeat/auto-apagado). |
-| `app.py` | Flask: `/editar`, `/catalogo`, `/estadisticas?desde=&hasta=`, `/guardar`, `/imagen`, `/api/programa/*`, `/api/personal/*`, `/api/disponibilidad?anio=&mes=`, `/api/config`. Construye la tabla editable (`field_id = "{semana}|{seccion}|{clave}|{campo}"`). |
+| `app.py` | Flask: `/editar`, `/catalogo`, `/estadisticas?desde=&hasta=`, `/guardar`, `/imagen`, `/api/programa/*`, `/api/personal/*`, `/api/disponibilidad?anio=&mes=`, `/api/config`, `/api/asamblea`, `/api/limpieza`. Construye la tabla editable (`field_id = "{semana}|{seccion}|{clave}|{campo}"`). |
 | `assignator.py` | Motor de asignación (ver reglas abajo) y `filas_historial()`. |
 | `guia.py` | Calcula las semanas del mes, descarga/cachea la guía (wol.jw.org y, si no está, el cuadernillo bimestral de jw.org) y la disponibilidad por mes. |
 | `parser.py` | Parseo del HTML de JW.org (autómata h2 = sección / h3 numerado = parte). También lee `input_html/`. |
 | `db.py` | SQLite (`programa.db`): tablas `personas` e `historial`; `estadisticas()` (partes por persona y tipo según `TIPOS_ESTADISTICA`; "no aplica" ≠ 0); normalización de roles; importar/exportar Excel; respaldos. |
 | `renderer.py` | Normaliza el programa a filas y genera `Programa_Mes.png` con html2image + recorte PIL. |
-| `config.py` | `config.json` (día de reunión, día FDS, `mostrar_limpieza`) y `PALETA_BANNER`. |
+| `config.py` | `config.json` (día de reunión, día FDS, `mostrar_limpieza`, `limpieza`, `semanas_asamblea`) y `PALETA_BANNER`. |
+| `limpieza.py` | Rotación de limpieza por fecha (`calcular(lunes)`) y `normalizar()` (acepta el formato antiguo: solo el grupo). |
 | `audit.py` | Auditoría por consola de reglas de negocio. |
 | `paths.py` | `internal_path` (dentro del .exe: código, templates) vs `external_path` (junto al .exe: datos). |
 | `templates/` | `editar.html` (editor, Tailwind por CDN + JS vanilla), `catalogo.html`, `estadisticas.html` (tabla ordenable de partes por persona), `base.html`, `programa.html` (plantilla de impresión, CSS propio). |
@@ -78,7 +79,8 @@ Datos reales de la congregación (nombres, fotos) son privados: no los subas al 
 - **Descanso**: quien tuvo una parte (no logística) la semana anterior no repite la siguiente. Cámara/Zoom/Acomodador (`ROLES_SIN_DESCANSO`) no cuentan. Se inicializa con la última semana del historial (cruza meses).
 - **Must-fill**: niveles de relajación (evitar pareja repetida → descanso → libre en la reunión → repetir persona con aviso). Ausencias (`DD/MM`) e Inactivos **nunca** se relajan.
 - **Parejas (Maestros)**: Trigo y Ayudante prefieren mujeres; una vez al mes se intenta matrimonio o pareja de hombres (`nota: "excepcion_mensual"`); no repetir compañero en el mes. `Discurso_H` solo hombres.
-- **Limpieza**: rotación Norte → Sur → Central; la fila es opcional (`mostrar_limpieza`).
+- **Limpieza** (`limpieza.py`): cada semana le toca a un grupo (orden de `config.limpieza.orden`, por defecto Norte → Central → Sur) en las dos reuniones: *leve* entre semana y *profunda* el fin de semana. Los encargados del grupo se turnan por vuelta (1.º leve / 2.º profunda, luego al revés). Se calcula por fecha desde `config.limpieza.inicio`, así sigue sola entre meses (no usa el historial). Formato: `asignaciones["limpieza"] = {"es"|"fds": {"grupo", "encargado", "especial"}}`; `especial` (texto libre, ej. limpieza anual) reemplaza grupo y encargado. Dos filas opcionales (`mostrar_limpieza`): "Limpieza leve" tras Vida Cristiana y "Limpieza profunda" al final, sin cabecera de sección. En el editor: botones "Limpieza especial" y "Grupos de limpieza" (`POST /api/limpieza` guarda y recalcula el programa abierto conservando las especiales).
+- **Asamblea**: `semana["asamblea"]` (botón en la cabecera de cada semana; se recuerda en `config.semanas_asamblea` vía `POST /api/asamblea`). Esa semana no se asigna a nadie, no entra al historial y pierde su turno de limpieza. En la imagen y el editor la columna se tapa con un letrero vertical "ASAMBLEA" posicionado por JS (`.asamblea-overlay`).
 - Los avisos se agrupan y se muestran en el banner rojo del editor.
 
 Roles oficiales: `db.ROLES_OFICIALES`. `db.normalizar_rol()` acepta variantes (`"Cámara"`, `"Diamante 1"`, `"Presidente"` → `Presidente_ES`). Si agregas un rol, actualízalo ahí y en `assignator.ROLES_POR_REUNION`.

@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,8 @@ import assignator as engine
 import config
 import db
 import guia
+import limpieza
+import parser as weekly_parser
 import renderer
 from paths import external_path, internal_path
 
@@ -111,8 +114,11 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
     personal_map = {p["nombre"]: p for p in personal}
 
     headers = [
-        {"rango": s["rango_fechas"], "fecha": s.get("fecha_exacta", "")}
-        for s in semanas
+        {"rango": s["rango_fechas"], "fecha": s.get("fecha_exacta", ""),
+         "asamblea": bool(s.get("asamblea")),
+         "field_asamblea": f"{si}|semana|asamblea|valor",
+         "lunes": _lunes_semana(s)}
+        for si, s in enumerate(semanas)
     ]
 
     filas: list[dict] = []
@@ -220,6 +226,17 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
         oveja_n += 1
         add("vida_cristiana", emo, num, lbl, celdas)
 
+    # ── Limpieza (leve: entre semana; profunda: fin de semana) ───────────────
+    def add_limpieza(reunion: str, etiqueta: str) -> None:
+        celdas = []
+        for si, s in enumerate(semanas):
+            datos = limpieza.normalizar(s["asignaciones"].get("limpieza"))[reunion]
+            celdas.append({**datos, "field_base": f"{si}|limpieza|{reunion}",
+                           "fecha": _fecha_reunion_texto(s, reunion)})
+        add("limpieza", "🧹", 0, etiqueta, celdas, es_limpieza=True)
+
+    add_limpieza("es", "Limpieza leve")
+
     # ── Fin de semana ─────────────────────────────────────────────────────────
     for key, emo, lbl, _, rol_fds, n in LOGISTICA:
         celdas = []
@@ -233,15 +250,10 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
             ])
         add("fin_de_semana", emo, 0, lbl, celdas)
 
-    # ── Limpieza ──────────────────────────────────────────────────────────────
-    add("limpieza", "🧹", 0, "Limpieza",
-        [{"field_id": f"{si}|limpieza|limpieza|valor",
-          "valor":    s["asignaciones"].get("limpieza", "Norte")}
-         for si, s in enumerate(semanas)],
-        es_limpieza=True)
+    add_limpieza("fds", "Limpieza profunda")
 
-    # Marcar primera fila de cada sección
-    seen: set[str] = set()
+    # Marcar primera fila de cada sección (las filas de limpieza no llevan)
+    seen: set[str] = {"limpieza"}
     for fila in filas:
         if fila["seccion"] not in seen:
             fila["mostrar_cabecera"] = True
@@ -252,6 +264,26 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
         "filas":       filas,
         "seccion_cfg": renderer.SECCION_CFG,
     }
+
+
+def _lunes_semana(semana: dict) -> str:
+    fecha = semana.get("fecha_inicio") or semana.get("fecha_reunion")
+    return db.lunes_de(date.fromisoformat(fecha)).isoformat() if fecha else ""
+
+
+_DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+
+
+def _fecha_reunion_texto(semana: dict, reunion: str) -> str:
+    """Ej. 'Sábado 05/12': fecha de la reunión de entre semana o de fin de semana."""
+    lunes = _lunes_semana(semana)
+    if not lunes:
+        return ""
+    if reunion == "es" and semana.get("fecha_reunion"):
+        d = date.fromisoformat(semana["fecha_reunion"])
+    else:
+        d = weekly_parser.calcular_dia_fds(date.fromisoformat(lunes))
+    return f"{_DIAS[d.weekday()]} {d.strftime('%d/%m')}"
 
 
 def _limpiar_nulos(programa: dict) -> dict:
@@ -297,6 +329,10 @@ def _aplicar_cambios(programa: dict, cambios: dict) -> dict:
         asig = prog["semanas"][si]["asignaciones"]
         val  = nombre_nuevo if nombre_nuevo else None
 
+        if sec == "semana" and key == "asamblea":
+            prog["semanas"][si]["asamblea"] = bool(val)
+            continue
+
         if sec in ("tesoros", "maestros", "vida_cristiana"):
             try:
                 idx = int(key)
@@ -316,7 +352,10 @@ def _aplicar_cambios(programa: dict, cambios: dict) -> dict:
             lst[idx] = val
 
         elif sec == "limpieza":
-            asig["limpieza"] = val or "Norte"
+            if key in limpieza.REUNIONES and campo in limpieza.CAMPOS:
+                datos = limpieza.normalizar(asig.get("limpieza"))
+                datos[key][campo] = (val or "").strip()
+                asig["limpieza"] = datos
 
     return prog
 
@@ -398,6 +437,8 @@ def editar():
         banner_color=programa.get("banner_color") or config.PALETA_BANNER[0],
         paleta_banner=config.PALETA_BANNER,
         mostrar_limpieza=config.leer()["mostrar_limpieza"],
+        cfg_limpieza=config.leer()["limpieza"],
+        texto_especial=limpieza.TEXTO_ESPECIAL,
     )
 
 
@@ -489,6 +530,58 @@ def api_config():
     if "mostrar_limpieza" in data:
         cambios["mostrar_limpieza"] = bool(data["mostrar_limpieza"])
     return jsonify({"ok": True, "config": config.guardar(**cambios)})
+
+
+@app.route("/api/asamblea", methods=["POST"])
+def api_asamblea():
+    """
+    Marca o desmarca una semana de asamblea. Se recuerda en config.json para
+    que, al volver a generar el mes, esa semana no reciba asignaciones.
+    """
+    data  = request.get_json(force=True)
+    lunes = str(data.get("semana", "")).strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", lunes):
+        return jsonify({"ok": False, "error": "Semana inválida"}), 400
+    semanas = [s for s in config.leer()["semanas_asamblea"] if s != lunes]
+    if data.get("activa"):
+        semanas.append(lunes)
+    config.guardar(semanas_asamblea=sorted(semanas))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/limpieza", methods=["POST"])
+def api_limpieza():
+    """
+    Guarda los grupos de limpieza (orden, encargados, semana de inicio) y
+    recalcula la rotación del programa abierto, conservando las limpiezas
+    especiales. Los demás cambios se guardan antes con el borrador.
+    """
+    data = request.get_json(force=True)
+    orden = [str(g).strip() for g in data.get("orden", []) if str(g).strip()]
+    if not orden:
+        return jsonify({"ok": False, "error": "Indica al menos un grupo"}), 400
+    inicio = str(data.get("inicio", "")).strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", inicio):
+        return jsonify({"ok": False, "error": "Fecha de inicio inválida"}), 400
+    encargados = {g: [str(n).strip() for n in data.get("encargados", {}).get(g, []) if str(n).strip()]
+                  for g in orden}
+    cfg = config.guardar(limpieza={"orden": orden, "encargados": encargados, "inicio": inicio})
+
+    programa = _estado.get("programa")
+    if programa:
+        for semana in programa.get("semanas", []):
+            lunes = _lunes_semana(semana)
+            nueva = limpieza.calcular(date.fromisoformat(lunes) if lunes else None, cfg["limpieza"])
+            anterior = limpieza.normalizar(semana["asignaciones"].get("limpieza"))
+            for r in limpieza.REUNIONES:
+                nueva[r]["especial"] = anterior[r]["especial"]
+            semana["asignaciones"]["limpieza"] = nueva
+        try:
+            BORRADOR_JSON.write_text(json.dumps(programa, ensure_ascii=False, indent=2),
+                                     encoding="utf-8")
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "config": cfg["limpieza"]})
 
 
 @app.route("/imagen")

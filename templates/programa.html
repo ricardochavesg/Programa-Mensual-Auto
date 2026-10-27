@@ -190,14 +190,48 @@ th, td {
 /* ─── Celda de limpieza ──────────────────────────────────── */
 .limpieza-pill {
   display: inline-block;
-  padding: 8px 30px;
-  border-radius: 26px;
-  font-size: 22px;
+  padding: 4px 22px;
+  border-radius: 22px;
+  font-size: 19px;
   font-weight: 800;
   letter-spacing: 1px;
   background: #dcfce7;
   color: #15803d;
   border: 2px solid #86efac;
+}
+.limpieza-encargado {
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #14532d;
+}
+/* Limpieza especial (anual, mensual…): texto libre en lugar del grupo */
+.limpieza-especial {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: #15803d;
+}
+
+/* ─── Semana de asamblea: la columna se tapa con un letrero vertical ─ */
+.tabla-wrap { position: relative; }
+.asamblea-overlay {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: inset 0 0 0 6px rgba(255,255,255,0.18);
+}
+.asamblea-texto {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  font-size: 64px;
+  font-weight: 800;
+  letter-spacing: 22px;
+  text-shadow: 0 3px 10px rgba(0,0,0,0.25);
 }
 
 </style>
@@ -215,13 +249,14 @@ th, td {
   </div>
 
   <!-- ── Tabla ── -->
+  <div class="tabla-wrap">
   <table>
     <thead>
       <tr>
         <th class="col-label col-label-th"
             style="background: linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), {{ banner_color }}">Asignación</th>
         {% for h in headers %}
-        <th class="week-th" style="background:{{ banner_color }}">
+        <th class="week-th" style="background:{{ banner_color }}"{% if h.asamblea %} data-asamblea="1"{% endif %}>
           <span class="fecha">{{ h.fecha }}</span>
           <span class="rango">{{ h.rango }}</span>
         </th>
@@ -262,9 +297,14 @@ th, td {
           {% for celda in fila.celdas %}
 
             {% if fila.es_limpieza %}
-              {# ── Limpieza: fondo verde, texto grande ── #}
+              {# ── Limpieza: grupo + encargado, o el texto de una limpieza especial ── #}
               <td class="assign-td-limpieza">
-                <span class="limpieza-pill">{{ celda }}</span>
+                {% if celda.especial %}
+                  <div class="limpieza-especial">{{ celda.especial|e }}</div>
+                {% else %}
+                  <span class="limpieza-pill">{{ (celda.grupo or "—")|e }}</span>
+                  {% if celda.encargado %}<div class="limpieza-encargado">{{ celda.encargado|e }}</div>{% endif %}
+                {% endif %}
               </td>
 
             {% else %}
@@ -298,8 +338,27 @@ th, td {
       {% endfor %}
     </tbody>
   </table>
+  {% for h in headers %}{% if h.asamblea %}
+  <div class="asamblea-overlay" data-col="{{ loop.index }}"
+       style="background: linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(0,0,0,0.30) 100%), {{ banner_color }}">
+    <span class="asamblea-texto">ASAMBLEA</span>
+  </div>
+  {% endif %}{% endfor %}
+  </div>
 
 
 </div><!-- .programa -->
+<script>
+// Coloca el letrero de asamblea sobre la columna de su semana (debajo de las fechas)
+document.querySelectorAll('.asamblea-overlay').forEach(ov => {
+  const th    = document.querySelectorAll('thead th')[Number(ov.dataset.col)];
+  const thead = document.querySelector('thead');
+  const tbody = document.querySelector('tbody');
+  ov.style.left   = th.offsetLeft + 'px';
+  ov.style.width  = th.offsetWidth + 'px';
+  ov.style.top    = thead.offsetHeight + 'px';
+  ov.style.height = tbody.offsetHeight + 'px';
+});
+</script>
 </body>
 </html>

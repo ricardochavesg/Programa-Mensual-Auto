@@ -15,6 +15,16 @@ PREDETERMINADO = {
     "dia_reunion":      "Miércoles",
     "dia_fds":          "Domingo",
     "mostrar_limpieza": True,
+    # Rotación de limpieza (ver limpieza.py): la semana de `inicio` le toca al
+    # primer grupo con su primer encargado entre semana.
+    "limpieza": {
+        "orden":      ["Norte", "Central", "Sur"],
+        "encargados": {"Norte": [], "Central": [], "Sur": []},
+        "inicio":     "2026-11-02",
+    },
+    # Lunes (YYYY-MM-DD) de las semanas de asamblea: esa semana no hay reunión
+    # en el Salón y no se asigna a nadie.
+    "semanas_asamblea": [],
 }
 
 # Colores oscuros (texto blanco legible) para el encabezado de la imagen.
@@ -33,12 +43,20 @@ PALETA_BANNER = [
 ]
 
 
+def _combinar(datos: dict) -> dict:
+    resultado = {**PREDETERMINADO, **datos}
+    limpieza = datos.get("limpieza")
+    resultado["limpieza"] = {**PREDETERMINADO["limpieza"],
+                             **(limpieza if isinstance(limpieza, dict) else {})}
+    return resultado
+
+
 def leer() -> dict:
     try:
         datos = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except Exception:
         datos = {}
-    return {**PREDETERMINADO, **datos}
+    return _combinar(datos)
 
 
 def guardar(**cambios) -> dict:
@@ -49,4 +67,4 @@ def guardar(**cambios) -> dict:
         datos = {}
     datos.update(cambios)
     CONFIG_FILE.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {**PREDETERMINADO, **datos}
+    return _combinar(datos)

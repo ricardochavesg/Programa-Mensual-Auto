@@ -19,6 +19,7 @@ import assignator
 import config
 import db
 import guia
+import limpieza
 import renderer
 from conftest import PAGINA_WOL, RAIZ, http_404, sembrar_personal
 
@@ -392,6 +393,101 @@ def test_plantilla_de_impresion(entorno):
 
     ctx = renderer._normalizar(prog, {}, mostrar_limpieza=False)
     assert not any(f["es_limpieza"] for f in ctx["filas"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Limpieza y semanas de asamblea
+# ─────────────────────────────────────────────────────────────────────────────
+
+GRUPOS = {"orden": ["Norte", "Central", "Sur"], "inicio": "2026-11-02",
+          "encargados": {"Norte": ["Norlan", "Chaves"], "Central": ["Alexander", "Andrés"],
+                         "Sur": ["Montoya", "Javier"]}}
+
+
+def test_rotacion_de_limpieza():
+    def turno(lunes):
+        r = limpieza.calcular(date.fromisoformat(lunes), GRUPOS)
+        return r["es"]["grupo"], r["es"]["encargado"], r["fds"]["encargado"]
+
+    # Igual que la tabla de la congregación: los encargados se turnan en cada vuelta
+    assert turno("2026-11-02") == ("Norte", "Norlan", "Chaves")
+    assert turno("2026-11-09") == ("Central", "Alexander", "Andrés")
+    assert turno("2026-11-16") == ("Sur", "Montoya", "Javier")
+    assert turno("2026-11-23") == ("Norte", "Chaves", "Norlan")
+    assert turno("2026-12-02") == ("Central", "Andrés", "Alexander")   # cualquier día de la semana
+    assert turno("2026-12-14") == ("Norte", "Norlan", "Chaves")
+    assert turno("2026-10-26") == ("Sur", "Javier", "Montoya")        # antes del inicio también rota
+    # Borradores antiguos (solo el nombre del grupo)
+    assert limpieza.normalizar("Sur")["fds"] == {"grupo": "Sur", "encargado": "", "especial": ""}
+    assert limpieza.normalizar(None) == limpieza.vacia()
+
+
+def test_semana_de_asamblea(entorno):
+    sembrar_personal()
+    config.guardar(limpieza=GRUPOS, semanas_asamblea=["2026-12-14"])
+    prog = assignator.generar_programa("2026-12")
+    semanas = {s["fecha_inicio"]: s for s in prog["semanas"]}
+    asamblea = semanas["2026-12-14"]
+    assert asamblea["asamblea"]
+    assert not any(n for r in ("ES", "FDS") for n in nombres_reunion(asamblea["asignaciones"], r))
+    # Su turno de limpieza se pierde: la semana siguiente sigue la rotación
+    assert asamblea["asignaciones"]["limpieza"]["es"]["grupo"] == "Norte"
+    assert semanas["2026-12-21"]["asignaciones"]["limpieza"]["es"]["grupo"] == "Central"
+    assert all(any(nombres_reunion(s["asignaciones"], "ES")) for s in prog["semanas"] if not s["asamblea"])
+    filas = assignator.filas_historial(prog)
+    assert filas and not any(f["semana"] == "2026-12-14" for f in filas)
+
+    ctx = renderer._normalizar(prog, {}, mostrar_limpieza=True)
+    html = Environment(loader=FileSystemLoader(str(RAIZ / "templates"))) \
+        .get_template("programa.html").render(**ctx)
+    assert html.count('class="asamblea-overlay"') == 1 and "ASAMBLEA" in html
+
+
+def test_filas_de_limpieza_en_la_imagen(entorno):
+    sembrar_personal()
+    config.guardar(limpieza=GRUPOS)
+    prog = assignator.generar_programa("2026-11")
+    prog["semanas"][0]["asignaciones"]["limpieza"]["fds"]["especial"] = "Limpieza <anual>"
+    ctx = renderer._normalizar(prog, {}, mostrar_limpieza=True)
+    secciones = [f["seccion"] for f in ctx["filas"]]
+    leve, profunda = [i for i, s in enumerate(secciones) if s == "limpieza"]
+    # Leve entre Vida Cristiana y Fin de semana; profunda al final
+    assert secciones[leve - 1] == "vida_cristiana" and secciones[leve + 1] == "fin_de_semana"
+    assert profunda == len(secciones) - 1
+    assert not any(f["mostrar_cabecera"] for f in ctx["filas"] if f["seccion"] == "limpieza")
+    assert ctx["filas"][leve]["celdas"][0] == {"grupo": "Norte", "encargado": "Norlan", "especial": ""}
+    html = Environment(loader=FileSystemLoader(str(RAIZ / "templates"))) \
+        .get_template("programa.html").render(**ctx)
+    assert "Limpieza &lt;anual&gt;" in html and "Chaves" in html
+
+
+def test_editor_limpieza_y_asamblea(cliente):
+    config.guardar(limpieza=GRUPOS)
+    html = cliente.get("/editar?mes=2026-11").get_data(as_text=True)
+    assert "Limpieza leve" in html and "Limpieza profunda" in html and "0|limpieza|fds|especial" in html
+
+    cambios = {"0|limpieza|es|encargado": "Otro", "0|limpieza|fds|especial": "LIMPIEZA ANUAL",
+               "1|semana|asamblea|valor": "1"}
+    assert cliente.post("/api/programa/guardar_borrador", json={"cambios": cambios}).get_json()["ok"]
+    prog = app_mod._estado["programa"]
+    assert prog["semanas"][0]["asignaciones"]["limpieza"]["es"]["encargado"] == "Otro"
+    assert prog["semanas"][1]["asamblea"] is True
+
+    assert cliente.post("/api/asamblea", json={"semana": "2026-11-09", "activa": True}).get_json()["ok"]
+    assert config.leer()["semanas_asamblea"] == ["2026-11-09"]
+    cliente.post("/api/asamblea", json={"semana": "2026-11-09", "activa": False})
+    assert config.leer()["semanas_asamblea"] == []
+    assert cliente.post("/api/asamblea", json={"semana": "x"}).status_code == 400
+
+    # Cambiar los grupos recalcula la rotación y conserva la limpieza especial
+    nuevos = {"orden": ["Este", "Oeste"], "inicio": "2026-11-02",
+              "encargados": {"Este": ["E1", "E2"], "Oeste": ["O1"]}}
+    assert cliente.post("/api/limpieza", json=nuevos).get_json()["ok"]
+    lp = [s["asignaciones"]["limpieza"] for s in app_mod._estado["programa"]["semanas"]]
+    assert lp[0]["es"] == {"grupo": "Este", "encargado": "E1", "especial": ""}
+    assert lp[0]["fds"]["especial"] == "LIMPIEZA ANUAL"
+    assert lp[1]["fds"]["encargado"] == "O1"
+    assert cliente.post("/api/limpieza", json={"orden": [], "inicio": "2026-11-02"}).status_code == 400
 
 
 # ─────────────────────────────────────────────────────────────────────────────

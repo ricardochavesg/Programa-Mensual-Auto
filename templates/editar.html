@@ -97,12 +97,77 @@
     <input type="color" id="input-color" value="{{ banner_color }}" oninput="elegirColor(this.value)"
            class="w-8 h-8 rounded cursor-pointer border border-slate-200" title="Otro color">
   </div>
-  <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none ml-auto">
-    <input type="checkbox" id="chk-limpieza" {% if mostrar_limpieza %}checked{% endif %}
-           onchange="toggleLimpieza(this.checked)" class="w-4 h-4 accent-emerald-600">
-    🧹 Incluir fila de limpieza
-  </label>
+  <div class="flex flex-wrap items-center gap-3 ml-auto">
+    <button type="button" onclick="abrirModal('modal-especial')"
+            class="px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 text-sm font-semibold hover:bg-emerald-100 transition">
+      ✨ Limpieza especial
+    </button>
+    <button type="button" onclick="abrirModal('modal-grupos')"
+            class="px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 text-sm font-semibold hover:bg-emerald-100 transition">
+      👥 Grupos de limpieza
+    </button>
+    <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+      <input type="checkbox" id="chk-limpieza" {% if mostrar_limpieza %}checked{% endif %}
+             onchange="toggleLimpieza(this.checked)" class="w-4 h-4 accent-emerald-600">
+      🧹 Incluir filas de limpieza
+    </label>
+  </div>
 </div>
+
+<!-- Modal: limpieza especial (anual, mensual…) en la reunión que se elija -->
+<div id="modal-especial" class="modal hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+     onclick="if (event.target === this) cerrarModal(this.id)">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+    <h2 class="font-black text-lg text-slate-800 mb-1">✨ Limpieza especial</h2>
+    <p class="text-sm text-slate-500 mb-4">Reemplaza al grupo y al encargado de esa reunión por el texto que escribas.</p>
+    <label class="block text-sm font-semibold text-slate-700 mb-1">Fecha</label>
+    <select id="especial-fecha" class="w-full mb-3 px-3 py-2 rounded-lg border border-slate-300 text-sm">
+      {% for fila in tabla.filas if fila.es_limpieza %}
+        {% for celda in fila.celdas %}
+        <option value="{{ celda.field_base }}">{{ celda.fecha }} — {{ fila.etiqueta }}</option>
+        {% endfor %}
+      {% endfor %}
+    </select>
+    <label class="block text-sm font-semibold text-slate-700 mb-1">Texto</label>
+    <input id="especial-texto" type="text" value="{{ texto_especial }}"
+           class="w-full mb-5 px-3 py-2 rounded-lg border border-slate-300 text-sm">
+    <div class="flex justify-end gap-2">
+      <button type="button" onclick="cerrarModal('modal-especial')"
+              class="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
+      <button type="button" onclick="aplicarEspecial()"
+              class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">Agregar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: grupos de limpieza (orden de rotación, encargados, semana de inicio) -->
+<div id="modal-grupos" class="modal hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+     onclick="if (event.target === this) cerrarModal(this.id)">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
+    <h2 class="font-black text-lg text-slate-800 mb-1">👥 Grupos de limpieza</h2>
+    <p class="text-sm text-slate-500 mb-4">
+      Los grupos rotan en este orden, una semana cada uno. Los encargados de cada grupo
+      se turnan: en una vuelta el 1.º hace la limpieza leve (entre semana) y el 2.º la
+      profunda (fin de semana); en la siguiente, al revés.
+    </p>
+    <div id="grupos-lista" class="space-y-2 mb-3"></div>
+    <button type="button" onclick="agregarGrupo('', [])"
+            class="text-sm font-semibold text-emerald-700 hover:underline mb-4">+ Agregar grupo</button>
+    <label class="block text-sm font-semibold text-slate-700 mb-1">
+      Semana de inicio <span class="font-normal text-slate-500">(le toca al 1.er grupo, con su 1.er encargado entre semana)</span>
+    </label>
+    <input id="grupos-inicio" type="date" value="{{ cfg_limpieza.inicio }}"
+           class="w-full mb-5 px-3 py-2 rounded-lg border border-slate-300 text-sm">
+    <div class="flex justify-end gap-2">
+      <button type="button" onclick="cerrarModal('modal-grupos')"
+              class="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
+      <button type="button" onclick="guardarGrupos()" id="btn-guardar-grupos"
+              class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">Guardar y aplicar</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="lista-personal"></datalist>
 
 <!-- Panel de resultado (oculto hasta generar) -->
 <div id="result-panel" class="hidden mb-6 bg-white rounded-2xl shadow p-6">
@@ -118,16 +183,24 @@
 </div>
 
 <!-- Tabla editable -->
-<div class="bg-white rounded-2xl shadow overflow-x-auto">
+<div id="tabla-wrap" class="relative bg-white rounded-2xl shadow overflow-x-auto">
   <table class="w-full border-collapse" style="min-width: 700px">
     <thead>
       <tr>
         <th id="th-asignacion" class="text-white/75 text-xs uppercase tracking-widest px-4 py-3 text-left font-medium"
             style="width:160px; background: linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), {{ banner_color }}">Asignación</th>
         {% for h in tabla.headers %}
-        <th class="th-semana text-white px-3 py-3 text-center" style="background:{{ banner_color }}">
+        <th class="th-semana text-white px-3 py-3 text-center" style="background:{{ banner_color }}"
+            data-lunes="{{ h.lunes }}">
           <span class="block font-extrabold text-sm text-white">{{ h.fecha }}</span>
           <span class="block text-slate-400 text-xs font-normal mt-0.5">{{ h.rango }}</span>
+          <input type="hidden" class="slot-value input-asamblea" data-field-id="{{ h.field_asamblea }}"
+                 value="{{ '1' if h.asamblea else '' }}">
+          <button type="button" onclick="toggleAsamblea(this)"
+                  class="btn-asamblea mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold border border-white/40 hover:bg-white/20 transition"
+                  title="Semana de asamblea: no hay reunión en el Salón">
+            {{ '✓ Asamblea' if h.asamblea else 'Asamblea' }}
+          </button>
         </th>
         {% endfor %}
       </tr>
@@ -170,18 +243,33 @@
               style="background:{{ cfg.row_bg }}">
 
             {% if fila.es_limpieza %}
-            {# Limpieza: selector Norte / Sur / Central #}
-            <select data-field-id="{{ celda.field_id }}"
-                    class="slot-value px-3 py-1.5 rounded-full text-sm font-bold border-2
-                           cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                    style="background:#dcfce7; color:#15803d; border-color:#86efac">
-              {% for grupo in ['Norte', 'Sur', 'Central'] %}
-              <option value="{{ grupo }}"
-                      {% if celda.valor == grupo %}selected{% endif %}>
-                {{ grupo }}
-              </option>
-              {% endfor %}
-            </select>
+            {# Limpieza: grupo + encargado, o el texto de una limpieza especial #}
+            <div class="celda-limpieza" data-base="{{ celda.field_base }}">
+              <div class="limpieza-normal flex flex-col items-center gap-1{% if celda.especial %} hidden{% endif %}">
+                <select data-field-id="{{ celda.field_base }}|grupo"
+                        class="slot-value px-3 py-1 rounded-full text-sm font-bold border-2
+                               cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                        style="background:#dcfce7; color:#15803d; border-color:#86efac">
+                  {% set grupos = cfg_limpieza.orden if celda.grupo in cfg_limpieza.orden else cfg_limpieza.orden + [celda.grupo] %}
+                  {% for grupo in grupos %}
+                  <option value="{{ grupo }}" {% if celda.grupo == grupo %}selected{% endif %}>{{ grupo or "—" }}</option>
+                  {% endfor %}
+                </select>
+                <input type="text" list="lista-personal" placeholder="Encargado"
+                       data-field-id="{{ celda.field_base }}|encargado" value="{{ celda.encargado }}"
+                       class="slot-value w-28 text-center text-xs font-semibold text-emerald-900 bg-transparent
+                              border-b border-dashed border-emerald-300 focus:outline-none focus:border-emerald-600">
+              </div>
+              <div class="limpieza-especial relative{% if not celda.especial %} hidden{% endif %}">
+                <textarea rows="2" data-field-id="{{ celda.field_base }}|especial"
+                          class="slot-value w-full text-center text-xs font-black uppercase text-emerald-700
+                                 bg-emerald-50 border border-emerald-200 rounded-lg p-1 resize-none
+                                 focus:outline-none focus:border-emerald-500">{{ celda.especial }}</textarea>
+                <button type="button" onclick="quitarEspecial(this)"
+                        class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-black
+                               flex items-center justify-center hover:bg-red-600" title="Quitar limpieza especial">×</button>
+              </div>
+            </div>
 
             {% else %}
             {# Personas: uno o más selectores #}
@@ -886,6 +974,7 @@ function elegirColor(color) {
     b.classList.toggle('ring-offset-1', activo);
     b.classList.toggle('ring-slate-500', activo);
   });
+  pintarAsambleas();
 }
 elegirColor(colorBanner());
 
@@ -894,6 +983,7 @@ elegirColor(colorBanner());
 ═══════════════════════════════════════════════════════════════ */
 async function toggleLimpieza(mostrar) {
   document.querySelectorAll('.fila-limpieza').forEach(tr => tr.classList.toggle('hidden', !mostrar));
+  pintarAsambleas();
   try {
     await fetch('/api/config', {
       method:  'POST',
@@ -907,6 +997,124 @@ async function toggleLimpieza(mostrar) {
 document.querySelectorAll('thead th').forEach((_, i) => {
   if (i > 0) verificarDuplicados(i - 1);
 });
+
+/* ═══════════════════════════════════════════════════════════════
+   ASAMBLEA: la semana se tapa con un letrero vertical
+═══════════════════════════════════════════════════════════════ */
+function pintarAsambleas() {
+  const wrap  = document.getElementById('tabla-wrap');
+  const thead = wrap.querySelector('thead');
+  const tbody = wrap.querySelector('tbody');
+  wrap.querySelectorAll('.asamblea-overlay').forEach(o => o.remove());
+  wrap.querySelectorAll('th.th-semana').forEach(th => {
+    const activa = th.querySelector('.input-asamblea').value === '1';
+    th.querySelector('.btn-asamblea').textContent = activa ? '✓ Asamblea' : 'Asamblea';
+    if (!activa) return;
+    const ov = document.createElement('div');
+    ov.className = 'asamblea-overlay absolute flex items-center justify-center text-white pointer-events-none';
+    ov.style.cssText = `left:${th.offsetLeft}px; width:${th.offsetWidth}px; top:${thead.offsetHeight}px;
+      height:${tbody.offsetHeight}px; background: linear-gradient(160deg, rgba(255,255,255,0.12), rgba(0,0,0,0.30)), ${colorBanner()};
+      box-shadow: inset 0 0 0 4px rgba(255,255,255,0.18)`;
+    ov.innerHTML = '<span style="writing-mode:vertical-rl; text-orientation:upright; font-size:44px; font-weight:900; letter-spacing:14px">ASAMBLEA</span>';
+    wrap.appendChild(ov);
+  });
+}
+
+async function toggleAsamblea(btn) {
+  const th     = btn.closest('th');
+  const input  = th.querySelector('.input-asamblea');
+  const activa = input.value !== '1';
+  input.value  = activa ? '1' : '';
+  pintarAsambleas();
+  try {   // se recuerda para cuando se vuelva a generar el mes
+    await fetch('/api/asamblea', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ semana: th.dataset.lunes, activa }),
+    });
+  } catch (e) { console.warn('No se pudo recordar la asamblea', e); }
+}
+
+window.addEventListener('resize', pintarAsambleas);
+window.addEventListener('load', pintarAsambleas);
+
+/* ═══════════════════════════════════════════════════════════════
+   LIMPIEZA: especial y grupos
+═══════════════════════════════════════════════════════════════ */
+function abrirModal(id)  { document.getElementById(id).classList.remove('hidden'); }
+function cerrarModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+function mostrarEspecial(celda, texto) {
+  celda.querySelector('.limpieza-especial textarea').value = texto;
+  celda.querySelector('.limpieza-especial').classList.toggle('hidden', !texto);
+  celda.querySelector('.limpieza-normal').classList.toggle('hidden', !!texto);
+  pintarAsambleas();
+}
+
+function aplicarEspecial() {
+  const base  = document.getElementById('especial-fecha').value;
+  const texto = document.getElementById('especial-texto').value.trim();
+  if (!base || !texto) return;
+  mostrarEspecial(document.querySelector(`.celda-limpieza[data-base="${base}"]`), texto);
+  cerrarModal('modal-especial');
+}
+
+function quitarEspecial(btn) {
+  mostrarEspecial(btn.closest('.celda-limpieza'), '');
+}
+
+const CFG_LIMPIEZA = {{ cfg_limpieza|tojson }};
+
+function agregarGrupo(nombre, encargados) {
+  const fila = document.createElement('div');
+  fila.className = 'grupo-fila flex items-center gap-2';
+  const campo = (valor, ph, clase, ancho) =>
+    `<input type="text" value="${(valor || '').replace(/"/g, '&quot;')}" placeholder="${ph}"
+            ${clase === 'enc' ? 'list="lista-personal"' : ''}
+            class="${clase} ${ancho} px-2 py-1.5 rounded-lg border border-slate-300 text-sm">`;
+  fila.innerHTML = campo(nombre, 'Grupo', 'grupo', 'w-24 font-bold')
+    + campo(encargados[0], 'Encargado 1', 'enc', 'flex-1 min-w-0')
+    + campo(encargados[1], 'Encargado 2', 'enc', 'flex-1 min-w-0')
+    + `<button type="button" onclick="this.parentElement.remove()" title="Quitar grupo"
+               class="w-7 h-7 rounded-full text-red-500 hover:bg-red-50 font-black">×</button>`;
+  document.getElementById('grupos-lista').appendChild(fila);
+}
+
+async function guardarGrupos() {
+  const orden = [], encargados = {};
+  document.querySelectorAll('#grupos-lista .grupo-fila').forEach(f => {
+    const g = f.querySelector('.grupo').value.trim();
+    if (!g) return;
+    orden.push(g);
+    encargados[g] = [...f.querySelectorAll('.enc')].map(i => i.value.trim()).filter(Boolean);
+  });
+  const inicio = document.getElementById('grupos-inicio').value;
+  const btn = document.getElementById('btn-guardar-grupos');
+  btn.disabled = true;
+  try {
+    // Primero se guardan los cambios de la tabla para no perderlos al recargar
+    await fetch('/api/programa/guardar_borrador', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cambios: recopilarCambios(), banner_color: colorBanner() }),
+    });
+    const resp = await fetch('/api/limpieza', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orden, encargados, inicio }),
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error);
+    location.reload();
+  } catch (e) {
+    alert('No se pudieron guardar los grupos: ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+(function iniciarLimpieza() {
+  CFG_LIMPIEZA.orden.forEach(g => agregarGrupo(g, CFG_LIMPIEZA.encargados[g] || []));
+  document.getElementById('lista-personal').innerHTML = PERSONAL
+    .filter(p => p.activo !== false)
+    .map(p => `<option value="${p.nombre.replace(/"/g, '&quot;')}"></option>`).join('');
+})();
 </script>
 
 {% endblock %}

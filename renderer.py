@@ -26,6 +26,7 @@ from PIL import Image
 
 import config
 import db
+import limpieza
 from paths import external_path, internal_path
 
 # Externos: junto al .exe, el usuario interactúa con ellos
@@ -279,7 +280,8 @@ def _normalizar(programa: dict, foto_map: dict, mostrar_limpieza: bool = True) -
     semanas = programa.get("semanas", [])
 
     headers = [
-        {"rango": s["rango_fechas"], "fecha": s.get("fecha_exacta", "")}
+        {"rango": s["rango_fechas"], "fecha": s.get("fecha_exacta", ""),
+         "asamblea": bool(s.get("asamblea"))}
         for s in semanas
     ]
 
@@ -355,18 +357,23 @@ def _normalizar(programa: dict, foto_map: dict, mostrar_limpieza: bool = True) -
         _fila("vida_cristiana", "", oveja_num, "", celdas)
         oveja_num += 1
 
+    # ── Limpieza: leve entre semana, profunda el fin de semana ───────────────
+    limpiezas = [limpieza.normalizar(s["asignaciones"].get("limpieza")) for s in semanas]
+    if mostrar_limpieza:
+        _fila("limpieza", "🧹", 0, "Limpieza leve",
+              [lp["es"] for lp in limpiezas], es_limpieza=True)
+
     # ── Fin de semana ─────────────────────────────────────────────────────────
     for key, (emo, lbl) in LOGISTICA_META.items():
         n = 2 if key in ("camara", "acomodadores") else 1
         _fila("fin_de_semana", emo, 0, lbl, _celdas_logistica(key, n, True))
 
-    # ── Limpieza ──────────────────────────────────────────────────────────────
     if mostrar_limpieza:
-        limpiezas = [s["asignaciones"].get("limpieza", "—") for s in semanas]
-        _fila("limpieza", "🧹", 0, "Limpieza", limpiezas, es_limpieza=True)
+        _fila("limpieza", "🧹", 0, "Limpieza profunda",
+              [lp["fds"] for lp in limpiezas], es_limpieza=True)
 
-    # ── Marcar cabeceras de sección ───────────────────────────────────────────
-    seccion_vista: set[str] = set()
+    # ── Marcar cabeceras de sección (las filas de limpieza no llevan) ────────
+    seccion_vista: set[str] = {"limpieza"}
     for fila in filas:
         if fila["seccion"] not in seccion_vista:
             fila["mostrar_cabecera"] = True
