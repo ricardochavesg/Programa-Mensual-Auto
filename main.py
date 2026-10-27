@@ -17,7 +17,10 @@ from pathlib import Path
 # Asegurar que el directorio del script esté en sys.path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from paths import external_path
+from paths import external_path, verificar_escritura
+
+# Problemas detectados al arrancar que la ventana muestra en un cuadro de aviso
+AVISOS_INICIO: list[str] = []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +67,12 @@ def _inicializar_entorno() -> None:
     import db
 
     _crear_directorios()
+    problema = verificar_escritura()
+    if problema:
+        # No se detiene: el editor puede abrirse para consultar, pero el usuario
+        # debe saber por qué no se guardan los cambios.
+        print("[ERROR] " + problema)
+        AVISOS_INICIO.append(problema)
     _crear_config_ejemplo()
     db.inicializar()          # crea programa.db y migra Personal_nuevo.xlsx si existe
     _crear_personal_ejemplo()
@@ -84,7 +93,7 @@ def main() -> None:
         from app import app
         return app
 
-    ventana.ejecutar(puerto=5000, preparar=preparar)
+    ventana.ejecutar(puerto=5000, preparar=preparar, avisos=AVISOS_INICIO)
 
 
 if __name__ == "__main__":

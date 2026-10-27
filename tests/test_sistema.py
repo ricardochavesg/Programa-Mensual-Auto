@@ -150,6 +150,36 @@ def test_obtener_semana_usa_cache(entorno):
     assert len(entorno["pedidas"]) == n          # segunda vez: desde caché
 
 
+def test_carpeta_bloqueada_no_pierde_la_guia(entorno, monkeypatch):
+    """Windows (ransomware/OneDrive) bloquea escribir: la guía descargada se usa igual."""
+    bloqueo = entorno["dir"] / "bloqueado"
+    bloqueo.write_text("soy un archivo")               # mkdir/escritura dentro fallan
+    monkeypatch.setattr(guia, "CACHE_DIR", bloqueo / "cache_guias")
+    semana = guia.obtener_semana(date(2026, 11, 2))
+    assert semana["fecha_reunion"] == date(2026, 11, 4)
+    assert guia.disponibilidad_mes(2026, 12) == "disponible"
+
+
+def test_verificar_escritura(entorno, monkeypatch):
+    import paths
+    monkeypatch.setattr(paths, "external_path",
+                        lambda rel="": entorno["dir"] / rel if rel else entorno["dir"])
+    (entorno["dir"] / "cache_guias").mkdir()
+    assert paths.verificar_escritura() is None
+    bloqueo = entorno["dir"] / "bloqueado"
+    bloqueo.write_text("x")
+    monkeypatch.setattr(paths, "external_path",
+                        lambda rel="": bloqueo / rel if rel else bloqueo)
+    mensaje = paths.verificar_escritura()
+    assert mensaje and "ransomware" in mensaje and str(bloqueo) in mensaje
+
+
+def test_base_inaccesible_da_mensaje_claro(entorno, monkeypatch):
+    monkeypatch.setattr(db, "DB_FILE", entorno["dir"] / "no_existe" / "programa.db")
+    with pytest.raises(RuntimeError, match="Windows está bloqueando"):
+        db.listar_personas()
+
+
 def test_respaldo_desde_jw_org(entorno, monkeypatch):
     lunes = date(2027, 3, 1)                     # wol simulado no la tiene
     indice = ('<a href="/es/biblioteca/guia-actividades-reunion-testigos-jehova/marzo-abril-2027-mwb/'

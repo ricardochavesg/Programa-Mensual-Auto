@@ -103,5 +103,6 @@ Roles oficiales: `db.ROLES_OFICIALES`. `db.normalizar_rol()` acepta variantes (`
 - En la nube no hay acceso a jw.org/wol ni al CDN de Tailwind. Para capturas con Playwright se puede servir `@tailwindcss/browser` (npm) interceptando la ruta del CDN, y Chromium está en `/opt/pw-browsers/chromium`. tkinter solo está disponible para `python3.12` del sistema (`xvfb-run` para probar la ventana).
 - `parser.DIA_REUNION`/`DIA_FDS` y `guia.WOL_*` se leen de `config.json` **al importar**.
 - En el `.exe` `sys.stdout` es `None` hasta que `ventana.py` lo redirige; no uses `sys.stdout.buffer` fuera de scripts CLI.
+- **Carpeta bloqueada en Windows**: si el .exe está en Documentos/Escritorio/OneDrive, la Protección contra ransomware (Acceso controlado a carpetas) puede bloquear cada .exe nuevo: escribir da `[Errno 2]` y SQLite `unable to open database file` (leer sí funciona). `paths.verificar_escritura()` lo detecta al arrancar y la ventana lo explica; la caché de guías es opcional (si no se puede guardar, la guía descargada se usa igual). Solución: mover la carpeta (p. ej. `C:\ProgramaReuniones`) o permitir el .exe.
 - El servidor Flask es multihilo: cada acceso a SQLite abre su propia conexión (`db.conectar()`).
 - El usuario trabaja sobre `main` y genera el `.exe` en su PC con `git pull` + `python build.py`.

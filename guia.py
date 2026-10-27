@@ -280,10 +280,14 @@ def obtener_semana(lunes: date, usar_cache: bool = True) -> dict:
         raise SinConexion(" / ".join(str(e) for e in errores))
 
     fuente_semana[lunes] = url
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cache.write_text(f"<html><body><article>{html_util}</article></body></html>"
-                     if not html_util.lstrip().lower().startswith(("<html", "<!doctype"))
-                     else html_util, encoding="utf-8")
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache.write_text(f"<html><body><article>{html_util}</article></body></html>"
+                         if not html_util.lstrip().lower().startswith(("<html", "<!doctype"))
+                         else html_util, encoding="utf-8")
+    except OSError as exc:
+        # La guía ya se descargó: se usa igual aunque no quede copia (carpeta bloqueada)
+        print(f"  [WARN] No se pudo guardar la copia de la guía ({cache.name}): {exc}")
     return weekly_parser.construir_semana(nombre, rango_texto(lunes), lunes, secciones)
 
 

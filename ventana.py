@@ -18,7 +18,7 @@ import sys
 import threading
 import traceback
 import webbrowser
-from typing import Callable
+from typing import Callable, Optional
 
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
@@ -50,7 +50,8 @@ class _SalidaVentana:
                 pass
 
 
-def ejecutar(puerto: int, preparar: Callable[[], object]) -> None:
+def ejecutar(puerto: int, preparar: Callable[[], object],
+             avisos: Optional[list[str]] = None) -> None:
     """
     Muestra la ventana de control y arranca el servidor en segundo plano.
     `preparar()` inicializa el entorno y devuelve la app WSGI (Flask).
@@ -147,6 +148,11 @@ def ejecutar(puerto: int, preparar: Callable[[], object]) -> None:
     print(f"Servidor iniciado → {url}")
     estado.configure(text=f"Activo en {url}", fg="#15803d")
     btn_abrir.configure(state="normal")
-    root.after(800, abrir_editor)
+    if avisos:
+        estado.configure(text=f"Activo en {url} — sin permiso para guardar en la carpeta",
+                         fg="#dc2626")
+        root.after(300, lambda: messagebox.showwarning(TITULO, "\n\n".join(avisos)))
+    else:
+        root.after(800, abrir_editor)
 
     root.mainloop()

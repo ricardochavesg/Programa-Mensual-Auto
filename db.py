@@ -77,16 +77,34 @@ CREATE INDEX IF NOT EXISTS ix_historial_nombre ON historial(nombre);
 
 @contextmanager
 def conectar() -> Iterator[sqlite3.Connection]:
-    con = sqlite3.connect(DB_FILE)
+    try:
+        con = sqlite3.connect(DB_FILE)
+    except sqlite3.OperationalError as exc:
+        raise _error_sin_acceso(exc) from exc
     con.row_factory = sqlite3.Row
     try:
         yield con
         con.commit()
+    except sqlite3.OperationalError as exc:
+        con.rollback()
+        if "unable to open" in str(exc) or "readonly" in str(exc):
+            raise _error_sin_acceso(exc) from exc
+        raise
     except Exception:
         con.rollback()
         raise
     finally:
         con.close()
+
+
+def _error_sin_acceso(exc: Exception) -> RuntimeError:
+    """'unable to open database file' casi siempre es Windows bloqueando la carpeta."""
+    return RuntimeError(
+        f"No se pudo guardar en {DB_FILE.name} ({exc}). Windows está bloqueando la "
+        "carpeta del programa (Protección contra ransomware u OneDrive). Mueve la "
+        "carpeta a C:\\ProgramaReuniones o permite el .exe en Seguridad de Windows. "
+        "Detalle en la ventana del programa."
+    )
 
 
 def inicializar() -> None:
