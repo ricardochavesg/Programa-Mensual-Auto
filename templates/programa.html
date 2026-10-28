@@ -106,6 +106,19 @@ th, td {
   text-transform: none;
 }
 
+/* Semana con visita del superintendente: columna naranja pastel (#ffedd5) */
+.visita-tag {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 1px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  background: #ffedd5;
+  color: #9a3412;
+}
+
 /* ─── Celda de etiqueta ──────────────────────────────────── */
 .label-td {
   padding: 8px 10px 8px 14px;
@@ -267,6 +280,7 @@ th, td {
         <th class="week-th" style="background:{{ banner_color }}"{% if h.asamblea %} data-asamblea="1"{% endif %}>
           <span class="fecha">{{ h.fecha }}</span>
           <span class="rango">{{ h.rango }}</span>
+          {% if h.visita %}<span class="visita-tag">VISITA</span>{% endif %}
         </th>
         {% endfor %}
       </tr>
@@ -311,10 +325,11 @@ th, td {
 
           {# Celdas de asignación — una por semana #}
           {% for celda in fila.celdas %}
+            {% set fondo_visita = 'style="background:#ffedd5"' if headers[loop.index0].visita else '' %}
 
             {% if fila.es_limpieza %}
               {# ── Limpieza: grupo + encargado, o el texto de una limpieza especial ── #}
-              <td class="assign-td-limpieza">
+              <td class="assign-td-limpieza" {{ fondo_visita }}>
                 {% if celda.especial %}
                   <div class="limpieza-especial">{{ celda.especial|e }}</div>
                 {% else %}
@@ -325,7 +340,7 @@ th, td {
 
             {% else %}
               {# ── Personas: avatares circulares sin nombre ── #}
-              <td class="assign-td">
+              <td class="assign-td" {{ fondo_visita }}>
                 <div class="assign-inner">
                   {% for p in celda %}
                     <div class="avatar {% if p.vacio %}avatar-empty{% endif %}">

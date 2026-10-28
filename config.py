@@ -14,6 +14,8 @@ CONFIG_FILE = external_path("config.json")
 PREDETERMINADO = {
     "dia_reunion":      "Miércoles",
     "dia_fds":          "Domingo",
+    # Semana de la visita del superintendente: la reunión de entre semana pasa a este día
+    "dia_visita":       "Martes",
     "mostrar_limpieza": True,
     # Rotación de limpieza (ver limpieza.py): la semana de `inicio` le toca al
     # primer grupo con su primer encargado entre semana.
@@ -25,6 +27,8 @@ PREDETERMINADO = {
     # Lunes (YYYY-MM-DD) de las semanas de asamblea: esa semana no hay reunión
     # en el Salón y no se asigna a nadie.
     "semanas_asamblea": [],
+    # Lunes de las semanas con visita del superintendente (reunión el `dia_visita`)
+    "semanas_visita": [],
 }
 
 # Colores oscuros (texto blanco legible) para el encabezado de la imagen.

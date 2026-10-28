@@ -543,6 +543,51 @@ def test_fecha_del_fin_de_semana_configurable(cliente):
     assert "Domingo 08/11" in cliente.get("/editar?mes=2026-11").get_data(as_text=True)
 
 
+def test_semana_de_visita(entorno):
+    sembrar_personal()
+    # Ausente el martes de la visita (no el miércoles regular)
+    # Todos los ancianos ausentes el martes de la visita (no el miércoles regular):
+    # esa semana no puede salir ninguno entre semana
+    for p in db.listar_personas():
+        if p["nombre"].startswith("Anciano"):
+            db.actualizar_persona(p["nombre"], "H", p["roles"], "03/11")
+    config.guardar(semanas_visita=["2026-11-02"])
+    prog = assignator.generar_programa("2026-11")
+    visita, normal = prog["semanas"][0], prog["semanas"][1]
+    assert visita["visita"] and visita["fecha_reunion"] == "2026-11-03"
+    assert visita["fecha_exacta"] == "Martes-03-11-26"
+    assert not normal["visita"] and normal["fecha_exacta"].startswith("Miércoles")
+    assert not any(n and n.startswith("Anciano") for n in nombres_reunion(visita["asignaciones"], "ES"))
+    assert any(n and n.startswith("Anciano") for n in nombres_reunion(normal["asignaciones"], "ES"))
+    assert {f["fecha"] for f in assignator.filas_historial(prog)
+            if f["semana"] == "2026-11-02" and f["reunion"] == "ES"} == {"2026-11-03"}
+
+    ctx = renderer._normalizar(prog, {}, mostrar_limpieza=True)
+    html = Environment(loader=FileSystemLoader(str(RAIZ / "templates"))) \
+        .get_template("programa.html").render(**ctx)
+    assert "VISITA" in html and html.count('style="background:#ffedd5"') >= len(ctx["filas"])
+
+
+def test_editor_visita_y_dia_de_reunion(cliente):
+    html = cliente.get("/editar?mes=2026-11").get_data(as_text=True)
+    assert "toggleVisita" in html and 'value="Miércoles" selected' in html
+    cliente.post("/api/programa/guardar_borrador", json={"cambios": {"1|semana|visita|valor": "1"}})
+    semana = app_mod._estado["programa"]["semanas"][1]
+    assert semana["visita"] and semana["fecha_exacta"] == "Martes-10-11-26"
+    assert cliente.post("/api/visita", json={"semana": "2026-11-09", "activa": True}).get_json()["ok"]
+    assert config.leer()["semanas_visita"] == ["2026-11-09"]
+
+    # Cambiar el día regular recalcula el programa abierto (la visita sigue en martes)
+    cliente.post("/api/config", json={"dia_reunion": "Jueves"})
+    semanas = app_mod._estado["programa"]["semanas"]
+    assert semanas[0]["fecha_exacta"] == "Jueves-05-11-26"
+    assert semanas[1]["fecha_exacta"] == "Martes-10-11-26"
+    cliente.post("/api/programa/guardar_borrador", json={"cambios": {"1|semana|visita|valor": ""}})
+    assert app_mod._estado["programa"]["semanas"][1]["fecha_exacta"] == "Jueves-12-11-26"
+    cliente.post("/api/config", json={"dia_reunion": "Domingo"})
+    assert config.leer()["dia_reunion"] == "Jueves"
+
+
 def test_imagen_sin_cache(cliente):
     renderer.OUTPUT_PNG.write_bytes(b"png")
     assert cliente.get("/imagen").headers["Cache-Control"] == "no-store"

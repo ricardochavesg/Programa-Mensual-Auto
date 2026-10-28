@@ -6,7 +6,6 @@ de asignaciones por semana como lista de diccionarios.
 Dependencias: beautifulsoup4, pandas, lxml
 """
 
-import json
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -19,15 +18,9 @@ import config
 from paths import external_path
 
 INPUT_DIR = external_path("input_html")
-_CFG_PATH = external_path("config.json")
 
-# Día de la reunión de entre semana (configurable en config.json).
-# El día del fin de semana se lee en cada llamada (ver calcular_dia_fds).
-try:
-    _cfg = json.loads(_CFG_PATH.read_text(encoding="utf-8"))
-    DIA_REUNION: str = _cfg.get("dia_reunion", "Miércoles")
-except Exception:
-    DIA_REUNION = "Miércoles"
+# Los días de reunión (entre semana, fin de semana, visita) se leen de
+# config.json en cada llamada: se cambian desde el editor sin reiniciar.
 
 # Meses en español -> número
 MESES = {
@@ -91,8 +84,16 @@ def extraer_fecha_inicio(texto_rango: str) -> date | None:
 DIAS_SEMANA = {"Lunes": 0, "Martes": 1, "Miércoles": 2, "Jueves": 3, "Viernes": 4}
 
 
-def calcular_dia_reunion(fecha_inicio: date, dia_semana: str = DIA_REUNION) -> date:
-    """Dado el lunes de la semana, devuelve la fecha del día de reunión configurado."""
+def calcular_dia_reunion(fecha_inicio: date, dia_semana: Optional[str] = None,
+                         visita: bool = False) -> date:
+    """
+    Dado el lunes de la semana, devuelve la fecha de la reunión de entre semana:
+    el día regular (`config.dia_reunion`) o, en la semana de la visita del
+    superintendente, `config.dia_visita` (Martes).
+    """
+    if dia_semana is None:
+        cfg = config.leer()
+        dia_semana = cfg["dia_visita"] if visita else cfg["dia_reunion"]
     objetivo = DIAS_SEMANA.get(dia_semana, 2)
     dias = (objetivo - fecha_inicio.weekday()) % 7
     return fecha_inicio + timedelta(days=dias)
@@ -128,9 +129,24 @@ def fecha_reunion_texto(semana: dict, reunion: str) -> str:
     return f"{NOMBRES_DIAS[d.weekday()]} {d.strftime('%d/%m')}"
 
 
-def formatear_fecha_exacta(d: date, dia_semana: str = DIA_REUNION) -> str:
+def formatear_fecha_exacta(d: date, dia_semana: Optional[str] = None) -> str:
     """Devuelve la fecha con el patrón 'Día-DD-MM-AA', ej: 'Miércoles-15-04-26'."""
-    return f"{dia_semana}-{d.strftime('%d-%m-%y')}"
+    return f"{dia_semana or NOMBRES_DIAS[d.weekday()]}-{d.strftime('%d-%m-%y')}"
+
+
+def aplicar_visita(semana: dict, activa: bool) -> dict:
+    """
+    Marca o desmarca la visita del superintendente en una semana del programa
+    (fechas en texto ISO) y recalcula la fecha de la reunión de entre semana.
+    """
+    semana["visita"] = bool(activa)
+    base = semana.get("fecha_inicio") or semana.get("fecha_reunion")
+    if base:
+        d = date.fromisoformat(base)
+        reunion = calcular_dia_reunion(d - timedelta(days=d.weekday()), visita=bool(activa))
+        semana["fecha_reunion"] = reunion.isoformat()
+        semana["fecha_exacta"]  = formatear_fecha_exacta(reunion)
+    return semana
 
 
 # ─────────────────────────────────────────────────────────────────────────────

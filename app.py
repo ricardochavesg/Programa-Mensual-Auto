@@ -117,6 +117,8 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
         {"rango": s["rango_fechas"], "fecha": s.get("fecha_exacta", ""),
          "asamblea": bool(s.get("asamblea")),
          "field_asamblea": f"{si}|semana|asamblea|valor",
+         "visita": bool(s.get("visita")),
+         "field_visita": f"{si}|semana|visita|valor",
          "fecha_fds": weekly_parser.fecha_reunion_texto(s, "fds"),
          "lunes": _lunes_semana(s)}
         for si, s in enumerate(semanas)
@@ -334,6 +336,10 @@ def _aplicar_cambios(programa: dict, cambios: dict) -> dict:
         if sec == "semana" and key == "asamblea":
             prog["semanas"][si]["asamblea"] = bool(val)
             continue
+        if sec == "semana" and key == "visita":
+            if bool(val) != bool(prog["semanas"][si].get("visita")):
+                weekly_parser.aplicar_visita(prog["semanas"][si], bool(val))
+            continue
 
         if sec in ("tesoros", "maestros", "vida_cristiana"):
             try:
@@ -441,6 +447,8 @@ def editar():
         mostrar_limpieza=config.leer()["mostrar_limpieza"],
         cfg_limpieza=config.leer()["limpieza"],
         dia_fds=config.leer()["dia_fds"],
+        dia_reunion=config.leer()["dia_reunion"],
+        dias_reunion=list(weekly_parser.DIAS_SEMANA),
         texto_especial=limpieza.TEXTO_ESPECIAL,
     )
 
@@ -534,7 +542,34 @@ def api_config():
         cambios["mostrar_limpieza"] = bool(data["mostrar_limpieza"])
     if data.get("dia_fds") in ("Sábado", "Domingo"):
         cambios["dia_fds"] = data["dia_fds"]
-    return jsonify({"ok": True, "config": config.guardar(**cambios)})
+    if data.get("dia_reunion") in weekly_parser.DIAS_SEMANA:
+        cambios["dia_reunion"] = data["dia_reunion"]
+    nueva = config.guardar(**cambios)
+
+    # Otro día de reunión: recalcular las fechas del programa abierto
+    programa = _estado.get("programa")
+    if "dia_reunion" in cambios and programa:
+        for semana in programa.get("semanas", []):
+            weekly_parser.aplicar_visita(semana, bool(semana.get("visita")))
+        try:
+            BORRADOR_JSON.write_text(json.dumps(programa, ensure_ascii=False, indent=2),
+                                     encoding="utf-8")
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "config": nueva})
+
+
+def _marcar_semana(clave: str):
+    """Agrega o quita el lunes de una semana de la lista `clave` de config.json."""
+    data  = request.get_json(force=True)
+    lunes = str(data.get("semana", "")).strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", lunes):
+        return jsonify({"ok": False, "error": "Semana inválida"}), 400
+    semanas = [s for s in config.leer()[clave] if s != lunes]
+    if data.get("activa"):
+        semanas.append(lunes)
+    config.guardar(**{clave: sorted(semanas)})
+    return jsonify({"ok": True})
 
 
 @app.route("/api/asamblea", methods=["POST"])
@@ -543,15 +578,13 @@ def api_asamblea():
     Marca o desmarca una semana de asamblea. Se recuerda en config.json para
     que, al volver a generar el mes, esa semana no reciba asignaciones.
     """
-    data  = request.get_json(force=True)
-    lunes = str(data.get("semana", "")).strip()
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", lunes):
-        return jsonify({"ok": False, "error": "Semana inválida"}), 400
-    semanas = [s for s in config.leer()["semanas_asamblea"] if s != lunes]
-    if data.get("activa"):
-        semanas.append(lunes)
-    config.guardar(semanas_asamblea=sorted(semanas))
-    return jsonify({"ok": True})
+    return _marcar_semana("semanas_asamblea")
+
+
+@app.route("/api/visita", methods=["POST"])
+def api_visita():
+    """Marca o desmarca la semana de la visita del superintendente (reunión el martes)."""
+    return _marcar_semana("semanas_visita")
 
 
 @app.route("/api/limpieza", methods=["POST"])

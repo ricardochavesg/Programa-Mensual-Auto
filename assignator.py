@@ -25,6 +25,8 @@ Reglas principales
   en orden; las ausencias y el estado Inactivo nunca se relajan.
 · Semana de asamblea (config "semanas_asamblea"): no se asigna a nadie y no
   cuenta para el historial; la limpieza de esa semana pierde su turno.
+· Semana de visita (config "semanas_visita"): la reunión de entre semana es el
+  martes (`dia_visita`); las ausencias se comprueban con esa fecha.
 """
 
 from __future__ import annotations
@@ -211,6 +213,7 @@ class Assignator:
                                   if semana["fecha_reunion"] else None),
                 "fecha_exacta":  semana.get("fecha_exacta", ""),
                 "asamblea":      bool(semana.get("asamblea")),
+                "visita":        bool(semana.get("visita")),
                 "asignaciones":  asignaciones,
             })
             # Las partes de esta semana pasan a ser "la semana anterior" (descanso).
@@ -653,9 +656,16 @@ def generar_programa(mes: Optional[str] = None) -> dict:
 
     lunes_mes = tuple(db.lunes_de(s["fecha_inicio"]).isoformat()
                       for s in semanas if s.get("fecha_inicio"))
-    asambleas = set(config.leer()["semanas_asamblea"])
+    cfg = config.leer()
+    asambleas, visitas = set(cfg["semanas_asamblea"]), set(cfg["semanas_visita"])
     for s in semanas:
-        s["asamblea"] = bool(s.get("fecha_inicio")) and db.lunes_de(s["fecha_inicio"]).isoformat() in asambleas
+        lunes = db.lunes_de(s["fecha_inicio"]) if s.get("fecha_inicio") else None
+        s["asamblea"] = bool(lunes) and lunes.isoformat() in asambleas
+        s["visita"]   = bool(lunes) and lunes.isoformat() in visitas
+        if s["visita"]:
+            # Visita del superintendente: la reunión de entre semana pasa al martes
+            s["fecha_reunion"] = weekly_parser.calcular_dia_reunion(lunes, visita=True)
+            s["fecha_exacta"]  = weekly_parser.formatear_fecha_exacta(s["fecha_reunion"])
     previo = db.historial(antes_de=min(lunes_mes), excluir_semanas=lunes_mes) if lunes_mes else []
 
     print(f"[3/3] Asignando personal a {len(semanas)} semana(s)...")

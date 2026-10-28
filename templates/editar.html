@@ -97,9 +97,18 @@
     <input type="color" id="input-color" value="{{ banner_color }}" oninput="elegirColor(this.value)"
            class="w-8 h-8 rounded cursor-pointer border border-slate-200" title="Otro color">
   </div>
+  <label class="flex items-center gap-2 text-sm text-slate-600" title="Día regular de la reunión de entre semana">
+    📅 Entre semana
+    <select id="sel-dia-reunion" onchange="cambiarDia('dia_reunion', this.value)"
+            class="px-2 py-1 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700">
+      {% for d in dias_reunion %}
+      <option value="{{ d }}" {% if dia_reunion == d %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </label>
   <label class="flex items-center gap-2 text-sm text-slate-600" title="Día de la reunión de fin de semana">
-    📅 Fin de semana
-    <select id="sel-dia-fds" onchange="cambiarDiaFds(this.value)"
+    Fin de semana
+    <select id="sel-dia-fds" onchange="cambiarDia('dia_fds', this.value)"
             class="px-2 py-1 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700">
       {% for d in ['Sábado', 'Domingo'] %}
       <option value="{{ d }}" {% if dia_fds == d %}selected{% endif %}>{{ d }}</option>
@@ -205,11 +214,21 @@
           <span class="block text-slate-400 text-xs font-normal mt-0.5">{{ h.rango }}</span>
           <input type="hidden" class="slot-value input-asamblea" data-field-id="{{ h.field_asamblea }}"
                  value="{{ '1' if h.asamblea else '' }}">
-          <button type="button" onclick="toggleAsamblea(this)"
-                  class="btn-asamblea mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold border border-white/40 hover:bg-white/20 transition"
-                  title="Semana de asamblea: no hay reunión en el Salón">
-            {{ '✓ Asamblea' if h.asamblea else 'Asamblea' }}
-          </button>
+          <input type="hidden" class="slot-value input-visita" data-field-id="{{ h.field_visita }}"
+                 value="{{ '1' if h.visita else '' }}">
+          <div class="flex justify-center gap-1 mt-1.5">
+            <button type="button" onclick="toggleAsamblea(this)"
+                    class="btn-asamblea px-2 py-0.5 rounded-full text-[11px] font-bold border border-white/40 hover:bg-white/20 transition"
+                    title="Semana de asamblea: no hay reunión en el Salón">
+              {{ '✓ Asamblea' if h.asamblea else 'Asamblea' }}
+            </button>
+            <button type="button" onclick="toggleVisita(this)"
+                    class="btn-visita px-2 py-0.5 rounded-full text-[11px] font-bold border transition
+                           {{ 'bg-orange-200 text-orange-900 border-orange-200' if h.visita else 'border-white/40 hover:bg-white/20' }}"
+                    title="Visita del superintendente: la reunión de entre semana pasa al martes">
+              {{ '✓ Visita' if h.visita else 'Visita' }}
+            </button>
+          </div>
         </th>
         {% endfor %}
       </tr>
@@ -259,8 +278,9 @@
 
           {# Celdas de asignación #}
           {% for celda in fila.celdas %}
+          {% set visita = tabla.headers[loop.index0].visita %}
           <td class="px-3 py-2 text-center align-middle"
-              style="background:{{ cfg.row_bg }}">
+              style="background:{{ '#ffedd5' if visita else cfg.row_bg }}">
 
             {% if fila.es_limpieza %}
             {# Limpieza: grupo + encargado, o el texto de una limpieza especial #}
@@ -1005,18 +1025,23 @@ elegirColor(colorBanner());
 /* ═══════════════════════════════════════════════════════════════
    FILA DE LIMPIEZA OPCIONAL (el programa recuerda la elección)
 ═══════════════════════════════════════════════════════════════ */
-async function cambiarDiaFds(dia) {
-  // Guarda los cambios de la tabla, el nuevo día y recarga para ver las fechas
+async function guardarYRecargar(antesDeRecargar) {
+  // Guarda los cambios de la tabla, aplica `antesDeRecargar` y recarga
+  await fetch('/api/programa/guardar_borrador', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cambios: recopilarCambios(), banner_color: colorBanner() }),
+  });
+  if (antesDeRecargar) await antesDeRecargar();
+  location.reload();
+}
+
+async function cambiarDia(clave, dia) {
+  // Día de reunión regular o de fin de semana: recarga para ver las fechas nuevas
   try {
-    await fetch('/api/programa/guardar_borrador', {
+    await guardarYRecargar(() => fetch('/api/config', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cambios: recopilarCambios(), banner_color: colorBanner() }),
-    });
-    await fetch('/api/config', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dia_fds: dia }),
-    });
-    location.reload();
+      body: JSON.stringify({ [clave]: dia }),
+    }));
   } catch (e) {
     alert('No se pudo cambiar el día: ' + e.message);
   }
@@ -1073,6 +1098,23 @@ async function toggleAsamblea(btn) {
       body: JSON.stringify({ semana: th.dataset.lunes, activa }),
     });
   } catch (e) { console.warn('No se pudo recordar la asamblea', e); }
+}
+
+async function toggleVisita(btn) {
+  // Visita: la reunión de entre semana pasa al martes y la semana se pinta de naranja
+  const th     = btn.closest('th');
+  const input  = th.querySelector('.input-visita');
+  const activa = input.value !== '1';
+  input.value  = activa ? '1' : '';
+  try {
+    await fetch('/api/visita', {   // se recuerda para cuando se vuelva a generar el mes
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ semana: th.dataset.lunes, activa }),
+    });
+    await guardarYRecargar();
+  } catch (e) {
+    alert('No se pudo marcar la visita: ' + e.message);
+  }
 }
 
 window.addEventListener('resize', pintarAsambleas);

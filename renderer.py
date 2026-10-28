@@ -285,6 +285,7 @@ def _normalizar(programa: dict, foto_map: dict, mostrar_limpieza: bool = True) -
     headers = [
         {"rango": s["rango_fechas"], "fecha": s.get("fecha_exacta", ""),
          "asamblea": bool(s.get("asamblea")),
+         "visita": bool(s.get("visita")),
          "fecha_fds": weekly_parser.fecha_reunion_texto(s, "fds")}
         for s in semanas
     ]
