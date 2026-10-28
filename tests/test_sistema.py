@@ -417,6 +417,10 @@ def test_rotacion_de_limpieza():
     assert turno("2026-12-02") == ("Central", "Andrés", "Alexander")   # cualquier día de la semana
     assert turno("2026-12-14") == ("Norte", "Norlan", "Chaves")
     assert turno("2026-10-26") == ("Sur", "Javier", "Montoya")        # antes del inicio también rota
+    # Si en el editor se cambia el grupo, se proponen los encargados de esa vuelta
+    por_grupo = limpieza.encargados_por_grupo(date(2026, 11, 23), GRUPOS)
+    assert por_grupo["es"]["Central"] == "Andrés" and por_grupo["fds"]["Central"] == "Alexander"
+    assert por_grupo["es"]["Norte"] == "Chaves"
     # Borradores antiguos (solo el nombre del grupo)
     assert limpieza.normalizar("Sur")["fds"] == {"grupo": "Sur", "encargado": "", "especial": ""}
     assert limpieza.normalizar(None) == limpieza.vacia()
@@ -518,6 +522,25 @@ def test_captura_fallida_explica_el_motivo(entorno, monkeypatch):
     monkeypatch.setattr(renderer, "_buscar_navegadores", lambda: [])
     with pytest.raises(RuntimeError, match="Chrome ni Microsoft Edge"):
         renderer._capturar(html, entorno["dir"] / "x.png", (100, 100))
+
+
+def test_fecha_del_fin_de_semana_configurable(cliente):
+    cliente.post("/api/config", json={"dia_fds": "Sábado"})
+    html = cliente.get("/editar?mes=2026-11").get_data(as_text=True)
+    assert "Sábado 07/11" in html and 'value="Sábado" selected' in html
+    prog = app_mod._estado["programa"]
+    ctx = renderer._normalizar(prog, {}, mostrar_limpieza=True)
+    assert ctx["headers"][0]["fecha_fds"] == "Sábado 07/11"
+    impresion = Environment(loader=FileSystemLoader(str(RAIZ / "templates"))) \
+        .get_template("programa.html").render(**ctx)
+    assert 'class="fecha-fds"' in impresion and "Sábado 07/11" in impresion
+    assert {f["fecha"] for f in assignator.filas_historial(prog) if f["reunion"] == "FDS"} >= {"2026-11-07"}
+
+    # Cambiar a domingo se aplica sin reiniciar; un valor inválido se ignora
+    cliente.post("/api/config", json={"dia_fds": "Domingo"})
+    cliente.post("/api/config", json={"dia_fds": "Lunes"})
+    assert config.leer()["dia_fds"] == "Domingo"
+    assert "Domingo 08/11" in cliente.get("/editar?mes=2026-11").get_data(as_text=True)
 
 
 def test_imagen_sin_cache(cliente):

@@ -97,6 +97,15 @@
     <input type="color" id="input-color" value="{{ banner_color }}" oninput="elegirColor(this.value)"
            class="w-8 h-8 rounded cursor-pointer border border-slate-200" title="Otro color">
   </div>
+  <label class="flex items-center gap-2 text-sm text-slate-600" title="Día de la reunión de fin de semana">
+    📅 Fin de semana
+    <select id="sel-dia-fds" onchange="cambiarDiaFds(this.value)"
+            class="px-2 py-1 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700">
+      {% for d in ['Sábado', 'Domingo'] %}
+      <option value="{{ d }}" {% if dia_fds == d %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </label>
   <div class="flex flex-wrap items-center gap-3 ml-auto">
     <button type="button" onclick="abrirModal('modal-especial')"
             class="px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 text-sm font-semibold hover:bg-emerald-100 transition">
@@ -213,11 +222,22 @@
         {% set clase_limpieza = 'fila-limpieza' ~ ('' if mostrar_limpieza else ' hidden') if fila.seccion == 'limpieza' else '' %}
         {% if fila.mostrar_cabecera %}
         <tr class="{{ clase_limpieza }}">
+          {% if fila.seccion == 'fin_de_semana' %}
+          {# Fin de semana: la fecha de la reunión en la misma fila #}
+          <td class="py-2 px-4 text-xs font-black tracking-widest uppercase text-white"
+              style="background:{{ cfg.hdr_bg }}">{{ cfg.label }}</td>
+          {% for h in tabla.headers %}
+          <td class="py-2 px-3 text-center text-sm font-bold text-white" style="background:{{ cfg.hdr_bg }}">
+            {{ h.fecha_fds }}
+          </td>
+          {% endfor %}
+          {% else %}
           <td colspan="{{ tabla.headers|length + 1 }}"
               class="py-2 px-4 text-xs font-black tracking-widest uppercase text-white"
               style="background:{{ cfg.hdr_bg }}">
             {{ cfg.label }}
           </td>
+          {% endif %}
         </tr>
         {% endif %}
 
@@ -247,6 +267,8 @@
             <div class="celda-limpieza" data-base="{{ celda.field_base }}">
               <div class="limpieza-normal flex flex-col items-center gap-1{% if celda.especial %} hidden{% endif %}">
                 <select data-field-id="{{ celda.field_base }}|grupo"
+                        data-por-grupo='{{ celda.por_grupo|tojson }}'
+                        onchange="cambiarGrupoLimpieza(this)"
                         class="slot-value px-3 py-1 rounded-full text-sm font-bold border-2
                                cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-300"
                         style="background:#dcfce7; color:#15803d; border-color:#86efac">
@@ -983,6 +1005,23 @@ elegirColor(colorBanner());
 /* ═══════════════════════════════════════════════════════════════
    FILA DE LIMPIEZA OPCIONAL (el programa recuerda la elección)
 ═══════════════════════════════════════════════════════════════ */
+async function cambiarDiaFds(dia) {
+  // Guarda los cambios de la tabla, el nuevo día y recarga para ver las fechas
+  try {
+    await fetch('/api/programa/guardar_borrador', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cambios: recopilarCambios(), banner_color: colorBanner() }),
+    });
+    await fetch('/api/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dia_fds: dia }),
+    });
+    location.reload();
+  } catch (e) {
+    alert('No se pudo cambiar el día: ' + e.message);
+  }
+}
+
 async function toggleLimpieza(mostrar) {
   document.querySelectorAll('.fila-limpieza').forEach(tr => tr.classList.toggle('hidden', !mostrar));
   pintarAsambleas();
@@ -1058,6 +1097,25 @@ function aplicarEspecial() {
   if (!base || !texto) return;
   mostrarEspecial(document.querySelector(`.celda-limpieza[data-base="${base}"]`), texto);
   cerrarModal('modal-especial');
+}
+
+// Al cambiar el grupo se ponen los encargados de ese grupo (según la vuelta de
+// esa semana). Si se cambia entre semana, el fin de semana toma el mismo grupo.
+function cambiarGrupoLimpieza(select) {
+  const base  = select.dataset.fieldId.replace(/\|grupo$/, '');
+  const grupo = select.value;
+  const poner = (b, sel) => {
+    sel.value = grupo;
+    const enc = document.querySelector(`[data-field-id="${b}|encargado"]`);
+    const nombre = JSON.parse(sel.dataset.porGrupo || '{}')[grupo];
+    if (enc && nombre !== undefined) enc.value = nombre;
+  };
+  poner(base, select);
+  if (base.endsWith('|es')) {
+    const baseFds = base.replace(/\|es$/, '|fds');
+    const selFds  = document.querySelector(`[data-field-id="${baseFds}|grupo"]`);
+    if (selFds && [...selFds.options].some(o => o.value === grupo)) poner(baseFds, selFds);
+  }
 }
 
 function quitarEspecial(btn) {

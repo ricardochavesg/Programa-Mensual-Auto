@@ -98,6 +98,14 @@ th, td {
   border: none;
 }
 
+/* Fecha de la reunión de fin de semana (en su fila de sección) */
+.section-hdr td.fecha-fds {
+  text-align: center;
+  font-size: 18px;
+  letter-spacing: 1px;
+  text-transform: none;
+}
+
 /* ─── Celda de etiqueta ──────────────────────────────────── */
 .label-td {
   padding: 8px 10px 8px 14px;
@@ -270,10 +278,18 @@ th, td {
         {% if fila.mostrar_cabecera %}
           {% set cfg = seccion_cfg[fila.seccion] %}
           <tr class="section-hdr">
+            {% if fila.seccion == "fin_de_semana" %}
+              {# Fin de semana: la fecha de la reunión en la misma fila #}
+              <td style="background:{{ cfg.hdr_bg }}">{{ cfg.label }}</td>
+              {% for h in headers %}
+              <td class="fecha-fds" style="background:{{ cfg.hdr_bg }}">{{ h.fecha_fds }}</td>
+              {% endfor %}
+            {% else %}
             <td colspan="{{ headers|length + 1 }}"
                 style="background:{{ cfg.hdr_bg }}">
               {{ cfg.label }}
             </td>
+            {% endif %}
           </tr>
         {% endif %}
 

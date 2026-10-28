@@ -10,23 +10,24 @@ import json
 import re
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 from bs4 import BeautifulSoup
 
+import config
 from paths import external_path
 
 INPUT_DIR = external_path("input_html")
 _CFG_PATH = external_path("config.json")
 
-# Día de la reunión de entre semana (configurable en config.json)
+# Día de la reunión de entre semana (configurable en config.json).
+# El día del fin de semana se lee en cada llamada (ver calcular_dia_fds).
 try:
     _cfg = json.loads(_CFG_PATH.read_text(encoding="utf-8"))
     DIA_REUNION: str = _cfg.get("dia_reunion", "Miércoles")
-    DIA_FDS: str = _cfg.get("dia_fds", "Domingo")
 except Exception:
     DIA_REUNION = "Miércoles"
-    DIA_FDS = "Domingo"
 
 # Meses en español -> número
 MESES = {
@@ -97,10 +98,34 @@ def calcular_dia_reunion(fecha_inicio: date, dia_semana: str = DIA_REUNION) -> d
     return fecha_inicio + timedelta(days=dias)
 
 
-def calcular_dia_fds(fecha_inicio: date, dia_semana: str = DIA_FDS) -> date:
-    """Dado el lunes de la semana, devuelve la fecha de la reunión de fin de semana."""
+def calcular_dia_fds(fecha_inicio: date, dia_semana: Optional[str] = None) -> date:
+    """
+    Dado el lunes de la semana, devuelve la fecha de la reunión de fin de semana.
+    El día (Sábado/Domingo) se lee de config.json en cada llamada: se puede
+    cambiar desde el editor sin reiniciar el programa.
+    """
+    dia_semana = dia_semana or config.leer()["dia_fds"]
     objetivo = {"Sábado": 5, "Sabado": 5, "Domingo": 6}.get(dia_semana, 6)
     return fecha_inicio + timedelta(days=(objetivo - fecha_inicio.weekday()) % 7)
+
+
+NOMBRES_DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+
+
+def fecha_reunion_texto(semana: dict, reunion: str) -> str:
+    """
+    Ej. 'Sábado 05/12': fecha de la reunión de entre semana (`reunion` = "es")
+    o de fin de semana ("fds") de una semana del programa.
+    """
+    if reunion == "es" and semana.get("fecha_reunion"):
+        d = date.fromisoformat(semana["fecha_reunion"])
+    else:
+        base = semana.get("fecha_inicio") or semana.get("fecha_reunion")
+        if not base:
+            return ""
+        d = date.fromisoformat(base)
+        d = calcular_dia_fds(d - timedelta(days=d.weekday()))
+    return f"{NOMBRES_DIAS[d.weekday()]} {d.strftime('%d/%m')}"
 
 
 def formatear_fecha_exacta(d: date, dia_semana: str = DIA_REUNION) -> str:

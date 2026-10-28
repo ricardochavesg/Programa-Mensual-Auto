@@ -35,26 +35,45 @@ def _lunes(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
-def calcular(lunes: Optional[date], cfg: Optional[dict] = None) -> dict:
-    """Grupo y encargados que le tocan a la semana que empieza en `lunes`."""
-    cfg = cfg or config.leer()["limpieza"]
+def _orden_y_turno(lunes: date, cfg: dict) -> tuple[list[str], int]:
+    """Orden de los grupos y número de semanas desde el inicio (negativo antes: también rota)."""
     orden = [g for g in cfg.get("orden", []) if g] or list(config.PREDETERMINADO["limpieza"]["orden"])
-    if lunes is None:
-        return vacia()
     try:
         inicio = _lunes(date.fromisoformat(cfg.get("inicio", "")))
     except ValueError:
         inicio = _lunes(date.fromisoformat(config.PREDETERMINADO["limpieza"]["inicio"]))
+    return orden, (_lunes(lunes) - inicio).days // 7
 
-    turno  = (_lunes(lunes) - inicio).days // 7      # negativo antes del inicio: también rota
-    grupo  = orden[turno % len(orden)]
+
+def encargados_por_grupo(lunes: Optional[date], cfg: Optional[dict] = None) -> dict:
+    """
+    Qué encargado le toca a CADA grupo en la vuelta de esa semana:
+    {"es": {grupo: nombre}, "fds": {grupo: nombre}}. El editor lo usa para
+    poner los encargados correctos cuando se cambia el grupo a mano.
+    """
+    cfg = cfg or config.leer()["limpieza"]
+    resultado: dict = {"es": {}, "fds": {}}
+    if lunes is None:
+        return resultado
+    orden, turno = _orden_y_turno(lunes, cfg)
     vuelta = turno // len(orden)
-    encargados = [e for e in cfg.get("encargados", {}).get(grupo, []) if e]
-    n = len(encargados)
-    return {
-        "es":  {"grupo": grupo, "encargado": encargados[vuelta % n] if n else "", "especial": ""},
-        "fds": {"grupo": grupo, "encargado": encargados[(vuelta + 1) % n] if n else "", "especial": ""},
-    }
+    for grupo in orden:
+        encargados = [e for e in cfg.get("encargados", {}).get(grupo, []) if e]
+        n = len(encargados)
+        resultado["es"][grupo]  = encargados[vuelta % n] if n else ""
+        resultado["fds"][grupo] = encargados[(vuelta + 1) % n] if n else ""
+    return resultado
+
+
+def calcular(lunes: Optional[date], cfg: Optional[dict] = None) -> dict:
+    """Grupo y encargados que le tocan a la semana que empieza en `lunes`."""
+    cfg = cfg or config.leer()["limpieza"]
+    if lunes is None:
+        return vacia()
+    orden, turno = _orden_y_turno(lunes, cfg)
+    grupo = orden[turno % len(orden)]
+    por_grupo = encargados_por_grupo(lunes, cfg)
+    return {r: {"grupo": grupo, "encargado": por_grupo[r][grupo], "especial": ""} for r in REUNIONES}
 
 
 def vacia() -> dict:

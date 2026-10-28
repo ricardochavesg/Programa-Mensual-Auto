@@ -29,6 +29,7 @@ from PIL import Image
 import config
 import db
 import limpieza
+import parser as weekly_parser
 from paths import external_path, internal_path
 
 # Externos: junto al .exe, el usuario interactúa con ellos
@@ -283,7 +284,8 @@ def _normalizar(programa: dict, foto_map: dict, mostrar_limpieza: bool = True) -
 
     headers = [
         {"rango": s["rango_fechas"], "fecha": s.get("fecha_exacta", ""),
-         "asamblea": bool(s.get("asamblea"))}
+         "asamblea": bool(s.get("asamblea")),
+         "fecha_fds": weekly_parser.fecha_reunion_texto(s, "fds")}
         for s in semanas
     ]
 

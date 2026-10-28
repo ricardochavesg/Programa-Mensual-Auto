@@ -117,6 +117,7 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
         {"rango": s["rango_fechas"], "fecha": s.get("fecha_exacta", ""),
          "asamblea": bool(s.get("asamblea")),
          "field_asamblea": f"{si}|semana|asamblea|valor",
+         "fecha_fds": weekly_parser.fecha_reunion_texto(s, "fds"),
          "lunes": _lunes_semana(s)}
         for si, s in enumerate(semanas)
     ]
@@ -231,8 +232,11 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
         celdas = []
         for si, s in enumerate(semanas):
             datos = limpieza.normalizar(s["asignaciones"].get("limpieza"))[reunion]
+            lunes = _lunes_semana(s)
+            por_grupo = limpieza.encargados_por_grupo(date.fromisoformat(lunes) if lunes else None)
             celdas.append({**datos, "field_base": f"{si}|limpieza|{reunion}",
-                           "fecha": _fecha_reunion_texto(s, reunion)})
+                           "fecha": weekly_parser.fecha_reunion_texto(s, reunion),
+                           "por_grupo": por_grupo[reunion]})
         add("limpieza", "🧹", 0, etiqueta, celdas, es_limpieza=True)
 
     add_limpieza("es", "Limpieza leve")
@@ -269,21 +273,6 @@ def _construir_tabla_editable(programa: dict, personal: list[dict]) -> dict:
 def _lunes_semana(semana: dict) -> str:
     fecha = semana.get("fecha_inicio") or semana.get("fecha_reunion")
     return db.lunes_de(date.fromisoformat(fecha)).isoformat() if fecha else ""
-
-
-_DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-
-
-def _fecha_reunion_texto(semana: dict, reunion: str) -> str:
-    """Ej. 'Sábado 05/12': fecha de la reunión de entre semana o de fin de semana."""
-    lunes = _lunes_semana(semana)
-    if not lunes:
-        return ""
-    if reunion == "es" and semana.get("fecha_reunion"):
-        d = date.fromisoformat(semana["fecha_reunion"])
-    else:
-        d = weekly_parser.calcular_dia_fds(date.fromisoformat(lunes))
-    return f"{_DIAS[d.weekday()]} {d.strftime('%d/%m')}"
 
 
 def _migrar_limpieza(programa: dict) -> dict:
@@ -451,6 +440,7 @@ def editar():
         paleta_banner=config.PALETA_BANNER,
         mostrar_limpieza=config.leer()["mostrar_limpieza"],
         cfg_limpieza=config.leer()["limpieza"],
+        dia_fds=config.leer()["dia_fds"],
         texto_especial=limpieza.TEXTO_ESPECIAL,
     )
 
@@ -542,6 +532,8 @@ def api_config():
     cambios = {}
     if "mostrar_limpieza" in data:
         cambios["mostrar_limpieza"] = bool(data["mostrar_limpieza"])
+    if data.get("dia_fds") in ("Sábado", "Domingo"):
+        cambios["dia_fds"] = data["dia_fds"]
     return jsonify({"ok": True, "config": config.guardar(**cambios)})
 
 
