@@ -23,7 +23,9 @@ python setup_db.py --exportar respaldo.xlsx | --importar archivo.xlsx | --histor
 
 Corre `python -m pytest tests -q` antes de cada commit.
 
-Funcionalidades acordadas y aún no hechas: `PENDIENTES.md`.
+Documentación: `README.md` (GitHub, en inglés, funciones), `MANUAL.md` (guía de uso en
+español para el usuario final), `PENDIENTES.md` (funcionalidades acordadas y aún no hechas).
+Si agregas o cambias una función visible, actualiza también README y MANUAL.
 
 ## Flujo
 
@@ -48,18 +50,18 @@ app.py /guardar (botón "Generar Imagen Final")
 |---|---|
 | `main.py` | Entrada. Prepara carpetas, `config.json`, `programa.db` (migra `Personal_nuevo.xlsx` si existe) y abre la ventana. |
 | `ventana.py` | Ventana tkinter en la barra de tareas. Redirige `print` al log de la ventana (el `.exe` es `--windowed`, sin consola). El servidor vive mientras la ventana esté abierta (no hay heartbeat/auto-apagado). |
-| `app.py` | Flask: `/editar`, `/catalogo`, `/estadisticas?desde=&hasta=`, `/guardar`, `/imagen`, `/api/programa/*`, `/api/personal/*`, `/api/disponibilidad?anio=&mes=`, `/api/config`, `/api/asamblea`, `/api/limpieza`. Construye la tabla editable (`field_id = "{semana}|{seccion}|{clave}|{campo}"`). |
+| `app.py` | Flask: `/editar`, `/catalogo`, `/estadisticas?desde=&hasta=`, `/guardar`, `/imagen`, `/api/programa/*`, `/api/personal/*`, `/api/disponibilidad?anio=&mes=`, `/api/config`, `/api/asamblea`, `/api/visita`, `/api/limpieza`. Construye la tabla editable (`field_id = "{semana}|{seccion}|{clave}|{campo}"`). |
 | `assignator.py` | Motor de asignación (ver reglas abajo) y `filas_historial()`. |
 | `guia.py` | Calcula las semanas del mes, descarga/cachea la guía (wol.jw.org y, si no está, el cuadernillo bimestral de jw.org) y la disponibilidad por mes. |
-| `parser.py` | Parseo del HTML de JW.org (autómata h2 = sección / h3 numerado = parte). También lee `input_html/`. |
+| `parser.py` | Parseo del HTML de JW.org (autómata h2 = sección / h3 numerado = parte). También lee `input_html/`. Fechas de reunión: `calcular_dia_reunion`, `calcular_dia_fds`, `fecha_reunion_texto`, `aplicar_visita`. |
 | `db.py` | SQLite (`programa.db`): tablas `personas` e `historial`; `estadisticas()` (partes por persona y tipo según `TIPOS_ESTADISTICA`; "no aplica" ≠ 0); normalización de roles; importar/exportar Excel; respaldos. |
 | `renderer.py` | Normaliza el programa a filas y genera `Programa_Mes.png` con Chrome/Edge headless (`_capturar`) + recorte PIL. |
-| `config.py` | `config.json` (día de reunión, día FDS, `mostrar_limpieza`, `limpieza`, `semanas_asamblea`) y `PALETA_BANNER`. |
+| `config.py` | `config.json` (`dia_reunion`, `dia_fds`, `dia_visita`, `mostrar_limpieza`, `limpieza`, `semanas_asamblea`, `semanas_visita`) y `PALETA_BANNER`. `leer()` combina con `PREDETERMINADO` (también dentro de `limpieza`). |
 | `limpieza.py` | Rotación de limpieza por fecha (`calcular(lunes)`) y `normalizar()` (acepta el formato antiguo: solo el grupo). |
 | `audit.py` | Auditoría por consola de reglas de negocio. |
 | `paths.py` | `internal_path` (dentro del .exe: código, templates) vs `external_path` (junto al .exe: datos). |
 | `templates/` | `editar.html` (editor, Tailwind por CDN + JS vanilla), `catalogo.html`, `estadisticas.html` (tabla ordenable de partes por persona), `base.html`, `programa.html` (plantilla de impresión, CSS propio). |
-| `tests/` | `conftest.py` aísla rutas en `tmp_path` y simula la red; `test_sistema.py` cubre todo el sistema. |
+| `tests/` | `conftest.py` aísla rutas en `tmp_path` y simula la red; `test_sistema.py` cubre todo el sistema (46 pruebas). |
 
 ## Datos (todos externos, junto al .exe; en `.gitignore`)
 
@@ -67,7 +69,8 @@ app.py /guardar (botón "Generar Imagen Final")
 - `fotos/` — `Foto_Path` o `Nombre.(png|jpg|jpeg|webp)`, búsqueda sin distinguir mayúsculas.
 - `cache_guias/` — HTML de cada semana descargada (`es_2026-W45.html`).
 - `input_html/` — HTML manuales: tienen prioridad sobre la descarga.
-- `config.json`, `borrador_programa.json`, `programa_mes.json`, `Programa_Mes.png`, `temp.html`, `backups/`.
+- `config.json`, `borrador_programa.json`, `programa_mes.json`, `Programa_Mes.png`, `temp.html`, `backups/` (copia de `programa.db` en cada "Generar Imagen Final").
+- Borradores antiguos se migran al abrirlos (`app._migrar_limpieza`): no rompas la compatibilidad de `borrador_programa.json` sin migrarlo.
 
 Datos reales de la congregación (nombres, fotos) son privados: no los subas al repo.
 
@@ -77,6 +80,7 @@ Datos reales de la congregación (nombres, fotos) son privados: no los subas al 
 - **Puntaje** (menor = mejor): asignaciones del mes en esa reunión → reservar a quien cubre roles escasos (`_escasez_otros_roles`) → no repetir el mismo rol del mes anterior → menos asignaciones el mes anterior → más tiempo sin participar → azar.
 - **Orden por escasez**: dentro de cada semana se asignan primero los roles con menos candidatos (Presidente, Diamantes…).
 - **Descanso**: quien tuvo una parte (no logística) la semana anterior no repite la siguiente. Cámara/Zoom/Acomodador (`ROLES_SIN_DESCANSO`) no cuentan. Se inicializa con la última semana del historial (cruza meses).
+- **Semanas** del programa: `rango_fechas`, `fecha_inicio` (lunes), `fecha_reunion`, `fecha_exacta`, `asamblea`, `visita`, `asignaciones`.
 - **Must-fill**: niveles de relajación (evitar pareja repetida → descanso → libre en la reunión → repetir persona con aviso). Ausencias (`DD/MM`) e Inactivos **nunca** se relajan.
 - **Parejas (Maestros)**: Trigo y Ayudante prefieren mujeres; una vez al mes se intenta matrimonio o pareja de hombres (`nota: "excepcion_mensual"`); no repetir compañero en el mes. `Discurso_H` solo hombres.
 - **Limpieza** (`limpieza.py`): cada semana le toca a un grupo (orden de `config.limpieza.orden`, por defecto Norte → Central → Sur) en las dos reuniones: *leve* entre semana y *profunda* el fin de semana. Los encargados del grupo se turnan por vuelta (1.º leve / 2.º profunda, luego al revés). Se calcula por fecha desde `config.limpieza.inicio`, así sigue sola entre meses (no usa el historial). Formato: `asignaciones["limpieza"] = {"es"|"fds": {"grupo", "encargado", "especial"}}`; `especial` (texto libre, ej. limpieza anual) reemplaza grupo y encargado. Dos filas opcionales (`mostrar_limpieza`): "Limpieza leve" tras Vida Cristiana y "Limpieza profunda" al final, sin cabecera de sección. En el editor: botones "Limpieza especial" y "Grupos de limpieza" (`POST /api/limpieza` guarda y recalcula el programa abierto conservando las especiales). Al cambiar el grupo de una celda, el editor pone el encargado de ese grupo según la vuelta de esa semana (`limpieza.encargados_por_grupo`, en `data-por-grupo`) y, si es la leve, el fin de semana toma el mismo grupo.
